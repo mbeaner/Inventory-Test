@@ -1,10 +1,12 @@
 // app.js - Inventory Manager Pro v13.0 with Supabase
 
+// Get Supabase client from window
+const supabaseClient = window.supabaseClient;
+
 // Global variables
 let parts = [];
 let usageLogs = [];
 let currentUser = null;
-let loading = false;
 
 // UI State
 let allState = { page: 1, rows: 50, search: '' };
@@ -300,7 +302,6 @@ async function deleteUsageLog(id) {
 }
 
 async function uploadPhoto(partId, photoDataUrl) {
-  // Convert data URL to Blob
   const response = await fetch(photoDataUrl);
   const blob = await response.blob();
 
@@ -315,7 +316,6 @@ async function uploadPhoto(partId, photoDataUrl) {
     return null;
   }
 
-  // Get public URL
   const { data: urlData } = supabaseClient.storage
     .from('part-photos')
     .getPublicUrl(fileName);
@@ -326,7 +326,6 @@ async function uploadPhoto(partId, photoDataUrl) {
 async function deletePhoto(photoUrl) {
   if (!photoUrl) return true;
 
-  // Extract file path from URL
   const fileName = photoUrl.split('/').pop();
 
   const { error } = await supabaseClient.storage
@@ -504,9 +503,9 @@ function handleRemovePhotoInEdit(partId) {
   });
   document.getElementById('confirmDetails').innerHTML =
     '<strong>Part:</strong> ' +
-    escapeHtml(part.partNumber) +
+    escapeHtml(part.part_number) +
     '<br><strong>Description:</strong> ' +
-    escapeHtml(part.description);
+    escapeHtml(part.description || '');
   showModal('confirmDeleteModal');
 }
 
@@ -646,7 +645,7 @@ function showPartDetails(id) {
     escapeHtml(p.part_number) +
     '</strong></div></div>' +
     '<div class="details-row"><div class="details-label">Description</div><div class="details-value">' +
-    escapeHtml(p.description) +
+    escapeHtml(p.description || '') +
     '</div></div>' +
     locHtml +
     '<div class="details-row"><div class="details-label">Current Quantity</div><div class="details-value"><span class="current-qty-display">' +
@@ -700,11 +699,9 @@ async function logUsage(partId, qty, note) {
   let prev = part.current_qty;
   let newQty = prev - qty;
 
-  // Update part in database
   let updatedPart = await updatePart(partId, { current_qty: newQty });
   if (!updatedPart) return false;
 
-  // Create usage log
   let log = {
     part_id: part.id,
     part_number: part.part_number,
@@ -719,7 +716,6 @@ async function logUsage(partId, qty, note) {
     usageLogs.unshift(newLog);
   }
 
-  // Update local part
   part.current_qty = newQty;
 
   refreshAll();
@@ -1076,7 +1072,6 @@ async function saveEditLog() {
     });
 
     if (updatedLog) {
-      // Update local array
       let index = usageLogs.findIndex((l) => l.id === currentEditLogId);
       if (index !== -1) usageLogs[index] = updatedLog;
       refreshAll();
@@ -1155,7 +1150,6 @@ async function saveEditPart() {
 
     let updatedPart = await updatePart(currentEditPartId, updates);
     if (updatedPart) {
-      // Update local array
       let index = parts.findIndex((x) => x.id === currentEditPartId);
       if (index !== -1) parts[index] = updatedPart;
       refreshAll();
@@ -1741,7 +1735,6 @@ document
   .getElementById('cancelCameraBtn')
   ?.addEventListener('click', closeCamera);
 
-// Close modal buttons
 let closeButtons = document.querySelectorAll('.close-modal');
 for (let i = 0; i < closeButtons.length; i++) {
   closeButtons[i].addEventListener('click', function (e) {
@@ -1788,6 +1781,4 @@ initMobileMenu();
 initUsageQuantityControls();
 window.changeAllPage = changeAllPage;
 window.showPartDetails = showPartDetails;
-
-// Start the app by checking session
 checkSession();
