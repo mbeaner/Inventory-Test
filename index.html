@@ -282,7 +282,7 @@
       </div>
     </div>
 
-    <!-- All Modals (same as before) -->
+    <!-- QR Scanner Modal -->
     <div id="qrScannerModal" class="modal">
       <div class="modal-card qr-modal">
         <span class="close-modal" data-modal="qrScannerModal">&times;</span>
@@ -293,9 +293,8 @@
             type="text"
             id="manualQrInput"
             placeholder="Or manually enter part number..."
-          /><button id="manualQrSubmit" class="btn btn-primary">
-            Find Part
-          </button>
+          />
+          <button id="manualQrSubmit" class="btn btn-primary">Find Part</button>
         </div>
         <div id="qr-status" class="qr-status idle">
           <i class="fas fa-camera"></i> Ready to scan
@@ -306,6 +305,7 @@
       </div>
     </div>
 
+    <!-- Camera Modal -->
     <div id="cameraModal" class="modal">
       <div class="modal-card camera-modal">
         <span class="close-modal" data-modal="cameraModal">&times;</span>
@@ -316,96 +316,107 @@
         <canvas id="camera-canvas" style="display: none"></canvas>
         <div class="camera-buttons">
           <button id="capturePhotoBtn" class="btn btn-primary">
-            <i class="fas fa-camera"></i> Capture</button
-          ><button id="cancelCameraBtn" class="btn btn-secondary">
+            <i class="fas fa-camera"></i> Capture
+          </button>
+          <button id="cancelCameraBtn" class="btn btn-secondary">
             <i class="fas fa-times"></i> Cancel
           </button>
         </div>
       </div>
     </div>
 
+    <!-- Part Details Modal -->
     <div id="partDetailsModal" class="modal">
       <div class="modal-card details-modal">
         <span class="close-modal" data-modal="partDetailsModal">&times;</span>
         <h3><i class="fas fa-info-circle"></i> Part Details</h3>
         <div id="partDetailsContent" class="details-grid"></div>
-        <div class="photo-container"><div id="photoDisplay"></div></div>
+        <div class="photo-container">
+          <div id="photoDisplay"></div>
+        </div>
         <div class="details-actions">
           <button id="detailsEditBtn" class="btn btn-secondary">
-            <i class="fas fa-edit"></i> Edit Part</button
-          ><button id="detailsLogBtn" class="btn btn-primary">
+            <i class="fas fa-edit"></i> Edit Part
+          </button>
+          <button id="detailsLogBtn" class="btn btn-primary">
             <i class="fas fa-clipboard-list"></i> Log Usage
           </button>
         </div>
       </div>
     </div>
 
+    <!-- Edit Modal -->
     <div id="editModal" class="modal">
       <div class="modal-card">
         <span class="close-modal" data-modal="editModal">&times;</span>
         <h3><i class="fas fa-edit"></i> Edit Part</h3>
-        <div class="form-group">
-          <label>Part Number</label><input type="text" id="editPartNumber" />
-        </div>
-        <div class="form-group">
-          <label>Description</label><input type="text" id="editDescription" />
-        </div>
-        <div class="form-group">
-          <label>Location</label
-          ><input
-            type="text"
-            id="editLocation"
-            placeholder="Aisle, Shelf, Bin"
-          />
-        </div>
-        <div class="form-group">
-          <label>Current Quantity</label>
-          <div class="qty-adjust-group">
-            <button id="decrementQtyBtn">-</button
-            ><span class="qty-value" id="editCurrentQtyDisplay">0</span
-            ><button id="incrementQtyBtn">+</button>
+        <div style="flex: 1; overflow-y: auto">
+          <div class="form-group">
+            <label>Part Number</label><input type="text" id="editPartNumber" />
           </div>
-          <input type="hidden" id="editCurrentQty" />
-        </div>
-        <div class="form-group">
-          <label>Baseline</label><input type="number" id="editBaselineQty" />
-        </div>
-        <div class="photo-container">
-          <div id="editPhotoDisplay"></div>
-          <div class="photo-buttons">
-            <button id="editTakePhotoBtn" class="btn btn-photo">
-              <i class="fas fa-camera"></i> Take Photo</button
-            ><button
-              id="editRemovePhotoBtn"
-              class="btn btn-secondary"
-              style="display: none"
-            >
-              <i class="fas fa-trash-alt"></i> Remove Photo
-            </button>
+          <div class="form-group">
+            <label>Description</label><input type="text" id="editDescription" />
+          </div>
+          <div class="form-group">
+            <label>Location</label
+            ><input
+              type="text"
+              id="editLocation"
+              placeholder="Aisle, Shelf, Bin"
+            />
+          </div>
+          <div class="form-group">
+            <label>Current Quantity</label>
+            <div class="qty-adjust-group">
+              <button id="decrementQtyBtn">-</button
+              ><span class="qty-value" id="editCurrentQtyDisplay">0</span
+              ><button id="incrementQtyBtn">+</button>
+            </div>
+            <input type="hidden" id="editCurrentQty" />
+          </div>
+          <div class="form-group">
+            <label>Baseline</label><input type="number" id="editBaselineQty" />
+          </div>
+          <div class="photo-container">
+            <div id="editPhotoDisplay"></div>
+            <div class="photo-buttons">
+              <button id="editTakePhotoBtn" class="btn btn-photo">
+                <i class="fas fa-camera"></i> Take Photo
+              </button>
+              <button
+                id="editRemovePhotoBtn"
+                class="btn btn-secondary"
+                style="display: none"
+              >
+                <i class="fas fa-trash-alt"></i> Remove Photo
+              </button>
+            </div>
           </div>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-danger" id="deleteFromEditBtn">Delete</button
-          ><button class="btn btn-secondary" id="cancelEditBtn">Cancel</button
-          ><button class="btn btn-primary" id="saveEditBtn">Save</button>
+          <button class="btn btn-danger" id="deleteFromEditBtn">Delete</button>
+          <button class="btn btn-secondary" id="cancelEditBtn">Cancel</button>
+          <button class="btn btn-primary" id="saveEditBtn">Save</button>
         </div>
       </div>
     </div>
 
+    <!-- Order Report Modal -->
     <div id="orderReportModal" class="modal">
       <div class="modal-card report-modal">
         <span class="close-modal" data-modal="orderReportModal">&times;</span>
         <h3>Order Report</h3>
         <div id="reportListContainer" class="report-list"></div>
         <div class="report-footer">
-          <span class="report-total" id="reportTotalItems">Total: 0 items</span
-          ><button id="createOrderBtn" class="btn btn-order">
+          <span class="report-total" id="reportTotalItems">Total: 0 items</span>
+          <button id="createOrderBtn" class="btn btn-order">
             Create Order
           </button>
         </div>
       </div>
     </div>
 
+    <!-- Confirm Delete Modal -->
     <div id="confirmDeleteModal" class="modal">
       <div class="modal-card confirm-modal">
         <span class="close-modal" data-modal="confirmDeleteModal">&times;</span>
@@ -420,12 +431,15 @@
           style="display: none"
         ></div>
         <div class="confirm-actions">
-          <button id="confirmCancelBtn" class="btn btn-secondary">Cancel</button
-          ><button id="confirmProceedBtn" class="btn btn-danger">Delete</button>
+          <button id="confirmCancelBtn" class="btn btn-secondary">
+            Cancel
+          </button>
+          <button id="confirmProceedBtn" class="btn btn-danger">Delete</button>
         </div>
       </div>
     </div>
 
+    <!-- Usage Modal -->
     <div id="usageModal" class="modal">
       <div class="modal-card">
         <span class="close-modal" data-modal="usageModal">&times;</span>
@@ -447,21 +461,23 @@
           <label>Quantity to Remove</label>
           <div class="quantity-input-wrapper">
             <button type="button" id="decrementUsageQty" class="qty-btn">
-              <i class="fas fa-minus"></i></button
-            ><input
+              <i class="fas fa-minus"></i>
+            </button>
+            <input
               type="number"
               id="usageQty"
               class="quantity-input"
               min="1"
               value="1"
-            /><button type="button" id="incrementUsageQty" class="qty-btn">
+            />
+            <button type="button" id="incrementUsageQty" class="qty-btn">
               <i class="fas fa-plus"></i>
             </button>
           </div>
         </div>
         <div class="form-group">
-          <label>Note (Optional)</label
-          ><textarea
+          <label>Note (Optional)</label>
+          <textarea
             id="usageNote"
             rows="3"
             placeholder="e.g., Used for machine repair, maintenance, etc..."
@@ -473,6 +489,7 @@
       </div>
     </div>
 
+    <!-- Edit Log Modal -->
     <div id="editLogModal" class="modal">
       <div class="modal-card">
         <span class="close-modal" data-modal="editLogModal">&times;</span>
@@ -491,14 +508,16 @@
           <label>Note</label><textarea id="editLogNote" rows="2"></textarea>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-danger" id="deleteLogBtn">Delete</button
-          ><button class="btn btn-secondary" id="cancelEditLogBtn">
-            Cancel</button
-          ><button class="btn btn-primary" id="saveEditLogBtn">Save</button>
+          <button class="btn btn-danger" id="deleteLogBtn">Delete</button>
+          <button class="btn btn-secondary" id="cancelEditLogBtn">
+            Cancel
+          </button>
+          <button class="btn btn-primary" id="saveEditLogBtn">Save</button>
         </div>
       </div>
     </div>
 
+    <!-- Add Part Modal -->
     <div id="addPartModal" class="modal">
       <div class="modal-card">
         <span class="close-modal" data-modal="addPartModal">&times;</span>
@@ -517,8 +536,8 @@
           ><input type="number" id="newQuantity" value="0" />
         </div>
         <div class="modal-actions">
-          <button class="btn btn-secondary" id="cancelAddBtn">Cancel</button
-          ><button class="btn btn-primary" id="saveAddBtn">Add</button>
+          <button class="btn btn-secondary" id="cancelAddBtn">Cancel</button>
+          <button class="btn btn-primary" id="saveAddBtn">Add</button>
         </div>
       </div>
     </div>
@@ -532,4 +551,3 @@
     <script src="app.js"></script>
   </body>
 </html>
-
