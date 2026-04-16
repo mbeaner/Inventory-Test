@@ -1,9 +1,12 @@
-// Data
+// app.js - Inventory Manager Pro v13.0 with Supabase
+
+// Global variables
 let parts = [];
 let usageLogs = [];
-let nextPartId = 1;
-let nextLogId = 1;
+let currentUser = null;
+let loading = false;
 
+// UI State
 let allState = { page: 1, rows: 50, search: '' };
 let needState = { page: 1, search: '' };
 let criticalState = { page: 1, search: '' };
@@ -23,6 +26,320 @@ let cameraStream = null;
 let pendingPhotoPartId = null;
 let reopenEditAfterPhoto = false;
 
+// ========== AUTHENTICATION FUNCTIONS ==========
+
+async function checkSession() {
+  const {
+    data: { session },
+    error,
+  } = await supabaseClient.auth.getSession();
+  if (session) {
+    currentUser = session.user;
+    showApp();
+    await loadAllData();
+  } else {
+    showAuth();
+  }
+}
+
+async function login(email, password) {
+  showAuthMessage('', '');
+  setAuthLoading(true);
+
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email: email,
+    password: password,
+  });
+
+  setAuthLoading(false);
+
+  if (error) {
+    showAuthMessage(error.message, 'error');
+    return false;
+  }
+
+  currentUser = data.user;
+  showApp();
+  await loadAllData();
+  return true;
+}
+
+async function register(email, password, confirmPassword) {
+  showAuthMessage('', '');
+
+  if (password !== confirmPassword) {
+    showAuthMessage('Passwords do not match', 'error');
+    return false;
+  }
+
+  if (password.length < 6) {
+    showAuthMessage('Password must be at least 6 characters', 'error');
+    return false;
+  }
+
+  setAuthLoading(true);
+
+  const { data, error } = await supabaseClient.auth.signUp({
+    email: email,
+    password: password,
+  });
+
+  setAuthLoading(false);
+
+  if (error) {
+    showAuthMessage(error.message, 'error');
+    return false;
+  }
+
+  showAuthMessage('Account created! Please login.', 'success');
+  switchToLogin();
+  return true;
+}
+
+async function logout() {
+  const { error } = await supabaseClient.auth.signOut();
+  if (error) {
+    showToast(error.message, true);
+  } else {
+    currentUser = null;
+    parts = [];
+    usageLogs = [];
+    showAuth();
+  }
+}
+
+function showAuth() {
+  document.getElementById('authContainer').style.display = 'flex';
+  document.getElementById('appContainer').style.display = 'none';
+}
+
+function showApp() {
+  document.getElementById('authContainer').style.display = 'none';
+  document.getElementById('appContainer').style.display = 'block';
+}
+
+function showAuthMessage(message, type) {
+  const msgDiv = document.getElementById('authMessage');
+  msgDiv.textContent = message;
+  msgDiv.className = 'auth-message ' + type;
+  if (message) {
+    msgDiv.style.display = 'block';
+  } else {
+    msgDiv.style.display = 'none';
+  }
+}
+
+function setAuthLoading(isLoading) {
+  const loginBtn = document.getElementById('loginBtn');
+  const registerBtn = document.getElementById('registerBtn');
+
+  if (isLoading) {
+    if (loginBtn) loginBtn.classList.add('btn-loading');
+    if (registerBtn) registerBtn.classList.add('btn-loading');
+  } else {
+    if (loginBtn) loginBtn.classList.remove('btn-loading');
+    if (registerBtn) registerBtn.classList.remove('btn-loading');
+  }
+}
+
+function switchToLogin() {
+  document.getElementById('loginForm').classList.add('active');
+  document.getElementById('registerForm').classList.remove('active');
+  document.getElementById('loginTab').classList.add('active');
+  document.getElementById('registerTab').classList.remove('active');
+  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginPassword').value = '';
+  showAuthMessage('', '');
+}
+
+function switchToRegister() {
+  document.getElementById('registerForm').classList.add('active');
+  document.getElementById('loginForm').classList.remove('active');
+  document.getElementById('registerTab').classList.add('active');
+  document.getElementById('loginTab').classList.remove('active');
+  document.getElementById('registerEmail').value = '';
+  document.getElementById('registerPassword').value = '';
+  document.getElementById('registerConfirmPassword').value = '';
+  showAuthMessage('', '');
+}
+
+// ========== DATABASE FUNCTIONS ==========
+
+async function loadAllData() {
+  await loadParts();
+  await loadUsageLogs();
+  refreshAll();
+}
+
+async function loadParts() {
+  showSyncIndicator('Loading parts...');
+
+  const { data, error } = await supabaseClient
+    .from('parts')
+    .select('*')
+    .order('part_number');
+
+  hideSyncIndicator();
+
+  if (error) {
+    showToast('Error loading parts: ' + error.message, true);
+    return;
+  }
+
+  parts = data || [];
+  showToast(`Loaded ${parts.length} parts`, false);
+}
+
+async function loadUsageLogs() {
+  const { data, error } = await supabaseClient
+    .from('usage_logs')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    showToast('Error loading logs: ' + error.message, true);
+    return;
+  }
+
+  usageLogs = data || [];
+}
+
+async function savePart(part) {
+  showSyncIndicator('Saving part...');
+
+  const { data, error } = await supabaseClient
+    .from('parts')
+    .insert([part])
+    .select();
+
+  hideSyncIndicator();
+
+  if (error) {
+    showToast('Error saving part: ' + error.message, true);
+    return null;
+  }
+
+  return data[0];
+}
+
+async function updatePart(id, updates) {
+  showSyncIndicator('Updating part...');
+
+  const { data, error } = await supabaseClient
+    .from('parts')
+    .update(updates)
+    .eq('id', id)
+    .select();
+
+  hideSyncIndicator();
+
+  if (error) {
+    showToast('Error updating part: ' + error.message, true);
+    return null;
+  }
+
+  return data[0];
+}
+
+async function deletePart(id) {
+  showSyncIndicator('Deleting part...');
+
+  const { error } = await supabaseClient.from('parts').delete().eq('id', id);
+
+  hideSyncIndicator();
+
+  if (error) {
+    showToast('Error deleting part: ' + error.message, true);
+    return false;
+  }
+
+  return true;
+}
+
+async function saveUsageLog(log) {
+  const { data, error } = await supabaseClient
+    .from('usage_logs')
+    .insert([log])
+    .select();
+
+  if (error) {
+    showToast('Error saving log: ' + error.message, true);
+    return null;
+  }
+
+  return data[0];
+}
+
+async function updateUsageLog(id, updates) {
+  const { data, error } = await supabaseClient
+    .from('usage_logs')
+    .update(updates)
+    .eq('id', id)
+    .select();
+
+  if (error) {
+    showToast('Error updating log: ' + error.message, true);
+    return null;
+  }
+
+  return data[0];
+}
+
+async function deleteUsageLog(id) {
+  const { error } = await supabaseClient
+    .from('usage_logs')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    showToast('Error deleting log: ' + error.message, true);
+    return false;
+  }
+
+  return true;
+}
+
+async function uploadPhoto(partId, photoDataUrl) {
+  // Convert data URL to Blob
+  const response = await fetch(photoDataUrl);
+  const blob = await response.blob();
+
+  const fileName = `part-${partId}-${Date.now()}.jpg`;
+
+  const { data, error } = await supabaseClient.storage
+    .from('part-photos')
+    .upload(fileName, blob);
+
+  if (error) {
+    showToast('Error uploading photo: ' + error.message, true);
+    return null;
+  }
+
+  // Get public URL
+  const { data: urlData } = supabaseClient.storage
+    .from('part-photos')
+    .getPublicUrl(fileName);
+
+  return urlData.publicUrl;
+}
+
+async function deletePhoto(photoUrl) {
+  if (!photoUrl) return true;
+
+  // Extract file path from URL
+  const fileName = photoUrl.split('/').pop();
+
+  const { error } = await supabaseClient.storage
+    .from('part-photos')
+    .remove([fileName]);
+
+  if (error) {
+    console.error('Error deleting photo:', error);
+  }
+}
+
+// ========== UI HELPER FUNCTIONS ==========
+
 function showToast(msg, isErr) {
   let t = document.createElement('div');
   t.className = 'success-toast';
@@ -38,29 +355,22 @@ function showToast(msg, isErr) {
   }, 2500);
 }
 
-function saveData() {
-  localStorage.setItem(
-    'inventoryData',
-    JSON.stringify({
-      parts: parts,
-      usageLogs: usageLogs,
-      nextPartId: nextPartId,
-      nextLogId: nextLogId,
-    }),
-  );
+let syncTimeout;
+function showSyncIndicator(message) {
+  let existing = document.querySelector('.sync-indicator');
+  if (existing) existing.remove();
+
+  let indicator = document.createElement('div');
+  indicator.className = 'sync-indicator';
+  indicator.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> ' + message;
+  document.body.appendChild(indicator);
 }
 
-function loadData() {
-  let saved = localStorage.getItem('inventoryData');
-  if (saved) {
-    try {
-      let d = JSON.parse(saved);
-      parts = d.parts || [];
-      usageLogs = d.usageLogs || [];
-      nextPartId = d.nextPartId || 1;
-      nextLogId = d.nextLogId || 1;
-    } catch (e) {}
-  }
+function hideSyncIndicator() {
+  setTimeout(() => {
+    let indicator = document.querySelector('.sync-indicator');
+    if (indicator) indicator.remove();
+  }, 500);
 }
 
 function hideModal(id) {
@@ -83,7 +393,8 @@ function escapeHtml(s) {
   });
 }
 
-// Camera Functions
+// ========== CAMERA FUNCTIONS ==========
+
 async function stopCamera() {
   if (cameraStream) {
     cameraStream.getTracks().forEach(function (track) {
@@ -126,7 +437,7 @@ async function closeCamera() {
   pendingPhotoPartId = null;
 }
 
-function capturePhoto() {
+async function capturePhoto() {
   let video = document.getElementById('camera-video');
   let canvas = document.getElementById('camera-canvas');
   let context = canvas.getContext('2d');
@@ -134,25 +445,33 @@ function capturePhoto() {
   canvas.height = video.videoHeight;
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
   let photoData = canvas.toDataURL('image/jpeg', 0.8);
+
   if (pendingPhotoPartId) {
-    let part = parts.find(function (p) {
-      return p.id === pendingPhotoPartId;
-    });
-    if (part) {
-      part.photo = photoData;
-      saveData();
-      showToast('✓ Photo captured and saved');
+    showSyncIndicator('Uploading photo...');
+    let photoUrl = await uploadPhoto(pendingPhotoPartId, photoData);
+    hideSyncIndicator();
+
+    if (photoUrl) {
+      let part = parts.find(function (p) {
+        return p.id === pendingPhotoPartId;
+      });
+      if (part) {
+        await updatePart(pendingPhotoPartId, { photo_url: photoUrl });
+        part.photo_url = photoUrl;
+        showToast('✓ Photo captured and saved');
+      }
     }
   }
   closeCamera();
 }
 
-// Photo display
+// ========== PHOTO DISPLAY FUNCTIONS ==========
+
 function displayPartPhotoInDetails(part) {
   let photoDisplay = document.getElementById('photoDisplay');
-  if (part.photo && part.photo.indexOf('data:image') === 0) {
+  if (part.photo_url) {
     photoDisplay.innerHTML =
-      '<img src="' + part.photo + '" class="part-photo" alt="Part photo">';
+      '<img src="' + part.photo_url + '" class="part-photo" alt="Part photo">';
   } else {
     photoDisplay.innerHTML =
       '<div class="part-photo-placeholder"><i class="fas fa-camera fa-2x"></i><span>No photo</span></div>';
@@ -162,9 +481,9 @@ function displayPartPhotoInDetails(part) {
 function displayPartPhotoInEdit(part) {
   let photoDisplay = document.getElementById('editPhotoDisplay');
   let removeBtn = document.getElementById('editRemovePhotoBtn');
-  if (part.photo && part.photo.indexOf('data:image') === 0) {
+  if (part.photo_url) {
     photoDisplay.innerHTML =
-      '<img src="' + part.photo + '" class="part-photo" alt="Part photo">';
+      '<img src="' + part.photo_url + '" class="part-photo" alt="Part photo">';
     if (removeBtn) removeBtn.style.display = 'inline-flex';
   } else {
     photoDisplay.innerHTML =
@@ -191,14 +510,15 @@ function handleRemovePhotoInEdit(partId) {
   showModal('confirmDeleteModal');
 }
 
-function executePhotoDelete() {
+async function executePhotoDelete() {
   if (pendingPhotoDeletePartId) {
     let part = parts.find(function (p) {
       return p.id === pendingPhotoDeletePartId;
     });
-    if (part) {
-      delete part.photo;
-      saveData();
+    if (part && part.photo_url) {
+      await deletePhoto(part.photo_url);
+      await updatePart(pendingPhotoDeletePartId, { photo_url: null });
+      part.photo_url = null;
       displayPartPhotoInEdit(part);
       showToast('✓ Photo removed');
     }
@@ -207,7 +527,8 @@ function executePhotoDelete() {
   hideModal('confirmDeleteModal');
 }
 
-// QR Scanner Functions
+// ========== QR SCANNER FUNCTIONS ==========
+
 async function stopQrScanner() {
   if (html5QrCode && isScannerActive) {
     try {
@@ -270,10 +591,10 @@ async function closeQrScanner() {
 
 function findPartByQrCode(val) {
   let found = parts.find(function (p) {
-    return p.partNumber.toLowerCase() === val.toLowerCase();
+    return p.part_number.toLowerCase() === val.toLowerCase();
   });
   if (found) {
-    showToast('✓ Found: ' + found.partNumber);
+    showToast('✓ Found: ' + found.part_number);
     showPartDetails(found.id);
   } else {
     if (confirm('Part "' + val + '" not found. Create new?')) {
@@ -298,22 +619,23 @@ function manualQrLookup() {
   findPartByQrCode(val);
 }
 
-// Core Functions
+// ========== CORE FUNCTIONS ==========
+
 function showPartDetails(id) {
   let p = parts.find(function (x) {
     return x.id === id;
   });
   if (!p) return;
   currentDetailsPartId = id;
-  let need = p.currentQty < p.baselineQty;
-  let crit = p.currentQty < p.baselineQty * 0.5;
+  let need = p.current_qty < p.baseline_qty;
+  let crit = p.current_qty < p.baseline_qty * 0.5;
   let statusText = need ? (crit ? 'CRITICAL' : 'Order Needed') : 'OK';
   let statusClass = need
     ? crit
       ? 'status-critical'
       : 'status-warning'
     : 'status-ok';
-  let percent = Math.round((p.currentQty / p.baselineQty) * 100);
+  let percent = Math.round((p.current_qty / p.baseline_qty) * 100);
   let locHtml = p.location
     ? '<div class="details-row"><div class="details-label"><i class="fas fa-map-marker-alt"></i> Location</div><div class="details-value"><span class="location-badge">' +
       escapeHtml(p.location) +
@@ -321,17 +643,17 @@ function showPartDetails(id) {
     : '<div class="details-row"><div class="details-label"><i class="fas fa-map-marker-alt"></i> Location</div><div class="details-value"><span style="color:#94a3b8;">Not specified</span></div></div>';
   let html =
     '<div class="details-row"><div class="details-label">Part Number</div><div class="details-value"><strong>' +
-    escapeHtml(p.partNumber) +
+    escapeHtml(p.part_number) +
     '</strong></div></div>' +
     '<div class="details-row"><div class="details-label">Description</div><div class="details-value">' +
     escapeHtml(p.description) +
     '</div></div>' +
     locHtml +
     '<div class="details-row"><div class="details-label">Current Quantity</div><div class="details-value"><span class="current-qty-display">' +
-    p.currentQty +
+    p.current_qty +
     '</span></div></div>' +
     '<div class="details-row"><div class="details-label">Baseline</div><div class="details-value">' +
-    p.baselineQty +
+    p.baseline_qty +
     '</div></div>' +
     '<div class="details-row"><div class="details-label">Stock Level</div><div class="details-value">' +
     percent +
@@ -343,7 +665,7 @@ function showPartDetails(id) {
     '</span></div></div>' +
     (need
       ? '<div class="details-row"><div class="details-label">Shortage</div><div class="details-value" style="color: #e76f51; font-weight: 600;">' +
-        (p.baselineQty - p.currentQty) +
+        (p.baseline_qty - p.current_qty) +
         ' units needed</div></div>'
       : '');
   document.getElementById('partDetailsContent').innerHTML = html;
@@ -365,36 +687,44 @@ function logFromDetails() {
   }
 }
 
-function logUsage(partId, qty, note) {
+async function logUsage(partId, qty, note) {
   let part = parts.find(function (p) {
     return p.id === partId;
   });
   if (!part) return false;
-  if (qty <= 0 || part.currentQty < qty) {
+  if (qty <= 0 || part.current_qty < qty) {
     showToast('Invalid quantity or insufficient stock', true);
     return false;
   }
-  let prev = part.currentQty;
-  part.currentQty -= qty;
-  usageLogs.unshift({
-    id: nextLogId++,
-    partId: part.id,
-    partNumber: part.partNumber,
-    qtyUsed: qty,
-    date: new Date().toLocaleString(),
+
+  let prev = part.current_qty;
+  let newQty = prev - qty;
+
+  // Update part in database
+  let updatedPart = await updatePart(partId, { current_qty: newQty });
+  if (!updatedPart) return false;
+
+  // Create usage log
+  let log = {
+    part_id: part.id,
+    part_number: part.part_number,
+    qty_used: qty,
     note: note || '',
-    previousStock: prev,
-    newStock: part.currentQty,
-  });
-  saveData();
+    previous_stock: prev,
+    new_stock: newQty,
+  };
+
+  let newLog = await saveUsageLog(log);
+  if (newLog) {
+    usageLogs.unshift(newLog);
+  }
+
+  // Update local part
+  part.current_qty = newQty;
+
   refreshAll();
   showToast(
-    '✓ Used ' +
-      qty +
-      ' x ' +
-      part.partNumber +
-      ', remaining: ' +
-      part.currentQty,
+    '✓ Used ' + qty + ' x ' + part.part_number + ', remaining: ' + newQty,
   );
   return true;
 }
@@ -404,8 +734,8 @@ function renderAllParts() {
   if (allState.search && allState.search.length > 0) {
     filtered = parts.filter(function (p) {
       return (
-        p.partNumber.toLowerCase().indexOf(allState.search) !== -1 ||
-        p.description.toLowerCase().indexOf(allState.search) !== -1
+        p.part_number.toLowerCase().indexOf(allState.search) !== -1 ||
+        (p.description || '').toLowerCase().indexOf(allState.search) !== -1
       );
     });
   }
@@ -424,20 +754,23 @@ function renderAllParts() {
     tbody.innerHTML = '';
     for (let i = 0; i < pageItems.length; i++) {
       let p = pageItems[i];
-      let need = p.currentQty < p.baselineQty;
-      let crit = p.currentQty < p.baselineQty * 0.5;
+      let need = p.current_qty < p.baseline_qty;
+      let crit = p.current_qty < p.baseline_qty * 0.5;
       let row = tbody.insertRow();
       if (need) row.className = crit ? 'stock-critical' : 'stock-low';
       row.insertCell(0).innerHTML =
         '<span class="clickable-part" onclick="showPartDetails(' +
         p.id +
         ')"><strong>' +
-        escapeHtml(p.partNumber) +
+        escapeHtml(p.part_number) +
         '</strong></span>';
-      row.insertCell(1).innerHTML = escapeHtml(p.description).substring(0, 50);
+      row.insertCell(1).innerHTML = escapeHtml(p.description || '').substring(
+        0,
+        50,
+      );
       row.insertCell(2).innerHTML =
-        '<span class="current-qty-display">' + p.currentQty + '</span>';
-      row.insertCell(3).innerHTML = p.baselineQty;
+        '<span class="current-qty-display">' + p.current_qty + '</span>';
+      row.insertCell(3).innerHTML = p.baseline_qty;
       let statusHtml = need
         ? crit
           ? '<span class="status-badge status-critical">CRITICAL</span>'
@@ -457,7 +790,7 @@ function renderAllParts() {
   document.getElementById('totalPartsStat').innerHTML = parts.length;
   document.getElementById('lowStockStat').innerHTML = parts.filter(
     function (p) {
-      return p.currentQty < p.baselineQty;
+      return p.current_qty < p.baseline_qty;
     },
   ).length;
 }
@@ -502,14 +835,14 @@ function changeAllPage(p) {
 
 function renderNeedOrder() {
   let needParts = parts.filter(function (p) {
-    return p.currentQty < p.baselineQty;
+    return p.current_qty < p.baseline_qty;
   });
   if (needState.search && needState.search.length > 0) {
     let searchTerm = needState.search.toLowerCase();
     needParts = needParts.filter(function (p) {
       return (
-        p.partNumber.toLowerCase().indexOf(searchTerm) !== -1 ||
-        p.description.toLowerCase().indexOf(searchTerm) !== -1
+        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
+        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
       );
     });
   }
@@ -522,22 +855,22 @@ function renderNeedOrder() {
       let html = '';
       for (let i = 0; i < needParts.length; i++) {
         let p = needParts[i];
-        let shortage = p.baselineQty - p.currentQty;
+        let shortage = p.baseline_qty - p.current_qty;
         html +=
           '<tr>' +
           '<td><span class="clickable-part" onclick="showPartDetails(' +
           p.id +
           ')"><strong>' +
-          escapeHtml(p.partNumber) +
+          escapeHtml(p.part_number) +
           '</strong></span></td>' +
           '<td>' +
-          escapeHtml(p.description).substring(0, 40) +
+          escapeHtml(p.description || '').substring(0, 40) +
           '</td>' +
           '<td><span class="current-qty-display">' +
-          p.currentQty +
+          p.current_qty +
           '</span></td>' +
           '<td>' +
-          p.baselineQty +
+          p.baseline_qty +
           '</td>' +
           '<td style="color:#e76f51;font-weight:600;">' +
           shortage +
@@ -551,14 +884,14 @@ function renderNeedOrder() {
 
 function renderCritical() {
   let criticalParts = parts.filter(function (p) {
-    return p.currentQty < p.baselineQty * 0.5;
+    return p.current_qty < p.baseline_qty * 0.5;
   });
   if (criticalState.search && criticalState.search.length > 0) {
     let searchTerm = criticalState.search.toLowerCase();
     criticalParts = criticalParts.filter(function (p) {
       return (
-        p.partNumber.toLowerCase().indexOf(searchTerm) !== -1 ||
-        p.description.toLowerCase().indexOf(searchTerm) !== -1
+        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
+        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
       );
     });
   }
@@ -571,22 +904,22 @@ function renderCritical() {
       let html = '';
       for (let i = 0; i < criticalParts.length; i++) {
         let p = criticalParts[i];
-        let percent = Math.round((p.currentQty / p.baselineQty) * 100);
+        let percent = Math.round((p.current_qty / p.baseline_qty) * 100);
         html +=
           '<tr class="stock-critical">' +
           '<td><span class="clickable-part" onclick="showPartDetails(' +
           p.id +
           ')"><strong>' +
-          escapeHtml(p.partNumber) +
+          escapeHtml(p.part_number) +
           '</strong></span></td>' +
           '<td>' +
-          escapeHtml(p.description).substring(0, 40) +
+          escapeHtml(p.description || '').substring(0, 40) +
           '</td>' +
           '<td><span class="current-qty-display">' +
-          p.currentQty +
+          p.current_qty +
           '</span></td>' +
           '<td>' +
-          p.baselineQty +
+          p.baseline_qty +
           '</td>' +
           '<td style="color:#c2410c;font-weight:600;">' +
           percent +
@@ -603,7 +936,7 @@ function renderLogs() {
   if (logsSearch && logsSearch.length > 0) {
     filtered = usageLogs.filter(function (l) {
       return (
-        l.partNumber.toLowerCase().indexOf(logsSearch) !== -1 ||
+        l.part_number.toLowerCase().indexOf(logsSearch) !== -1 ||
         (l.note || '').toLowerCase().indexOf(logsSearch) !== -1
       );
     });
@@ -620,17 +953,17 @@ function renderLogs() {
         let l = filtered[i];
         html +=
           '<div class="log-entry"><div><i class="far fa-calendar-alt"></i> ' +
-          escapeHtml(l.date) +
+          escapeHtml(new Date(l.created_at).toLocaleString()) +
           '</div><div><strong>' +
-          escapeHtml(l.partNumber) +
+          escapeHtml(l.part_number) +
           '</strong> <span style="color:#e76f51;">-' +
-          l.qtyUsed +
+          l.qty_used +
           '</span></div><div><i class="fas fa-comment"></i> ' +
           escapeHtml(l.note || '—') +
           '</div><div>' +
-          l.previousStock +
+          l.previous_stock +
           ' → ' +
-          l.newStock +
+          l.new_stock +
           '</div><div><button class="icon-btn" onclick="openEditLog(' +
           l.id +
           ')"><i class="fas fa-edit"></i></button></div></div>';
@@ -647,19 +980,22 @@ function refreshAll() {
   renderLogs();
 }
 
+// ========== EDIT FUNCTIONS ==========
+
 window.openEditPart = function (id) {
   let p = parts.find(function (x) {
     return x.id === id;
   });
   if (p) {
     currentEditPartId = id;
-    document.getElementById('editPartNumber').value = p.partNumber;
-    document.getElementById('editDescription').value = p.description;
+    document.getElementById('editPartNumber').value = p.part_number;
+    document.getElementById('editDescription').value = p.description || '';
     document.getElementById('editLocation').value = p.location || '';
-    document.getElementById('editCurrentQtyDisplay').innerText = p.currentQty;
-    document.getElementById('editCurrentQty').value = p.currentQty;
-    document.getElementById('editBaselineQty').value = p.baselineQty;
+    document.getElementById('editCurrentQtyDisplay').innerText = p.current_qty;
+    document.getElementById('editCurrentQty').value = p.current_qty;
+    document.getElementById('editBaselineQty').value = p.baseline_qty;
     displayPartPhotoInEdit(p);
+
     let takePhotoBtn = document.getElementById('editTakePhotoBtn');
     let removePhotoBtn = document.getElementById('editRemovePhotoBtn');
     let newTakeBtn = takePhotoBtn.cloneNode(true);
@@ -682,17 +1018,16 @@ window.openQuickLog = function (id) {
   });
   if (p) {
     selectedPartId = id;
-    document.getElementById('partSearchInput').value = p.partNumber;
+    document.getElementById('partSearchInput').value = p.part_number;
     let selectedDisplay = document.getElementById('selectedPartDisplay');
     selectedDisplay.innerHTML =
       '<i class="fas fa-check-circle"></i> Selected: <strong>' +
-      escapeHtml(p.partNumber) +
+      escapeHtml(p.part_number) +
       '</strong> - Stock: ' +
-      p.currentQty +
+      p.current_qty +
       ' units';
     selectedDisplay.classList.add('show');
 
-    // Auto-hide the selected display after 3 seconds
     setTimeout(function () {
       if (selectedDisplay && selectedDisplay.classList) {
         selectedDisplay.classList.remove('show');
@@ -700,7 +1035,7 @@ window.openQuickLog = function (id) {
     }, 3000);
 
     document.getElementById('usageQty').value = 1;
-    document.getElementById('usageQty').max = p.currentQty;
+    document.getElementById('usageQty').max = p.current_qty;
     document.getElementById('usageNote').value = '';
     document.getElementById('partListDropdown').innerHTML = '';
     document.getElementById('partListDropdown').style.display = 'none';
@@ -714,15 +1049,17 @@ window.openEditLog = function (id) {
   });
   if (log) {
     currentEditLogId = id;
-    document.getElementById('editLogPartNumber').value = log.partNumber;
-    document.getElementById('editLogQty').value = log.qtyUsed;
-    document.getElementById('editLogDate').value = log.date;
+    document.getElementById('editLogPartNumber').value = log.part_number;
+    document.getElementById('editLogQty').value = log.qty_used;
+    document.getElementById('editLogDate').value = new Date(
+      log.created_at,
+    ).toLocaleString();
     document.getElementById('editLogNote').value = log.note || '';
     showModal('editLogModal');
   }
 };
 
-function saveEditLog() {
+async function saveEditLog() {
   let log = usageLogs.find(function (l) {
     return l.id === currentEditLogId;
   });
@@ -732,17 +1069,24 @@ function saveEditLog() {
       showToast('Invalid quantity', true);
       return;
     }
-    log.qtyUsed = newQty;
-    log.date = document.getElementById('editLogDate').value;
-    log.note = document.getElementById('editLogNote').value;
-    saveData();
-    refreshAll();
-    hideModal('editLogModal');
-    showToast('✓ Log entry updated successfully');
+
+    let updatedLog = await updateUsageLog(currentEditLogId, {
+      qty_used: newQty,
+      note: document.getElementById('editLogNote').value,
+    });
+
+    if (updatedLog) {
+      // Update local array
+      let index = usageLogs.findIndex((l) => l.id === currentEditLogId);
+      if (index !== -1) usageLogs[index] = updatedLog;
+      refreshAll();
+      hideModal('editLogModal');
+      showToast('✓ Log entry updated successfully');
+    }
   }
 }
 
-function addNewPart() {
+async function addNewPart() {
   let pn = document.getElementById('newPartNumber').value.trim();
   if (!pn) {
     showToast('Part number required', true);
@@ -750,34 +1094,39 @@ function addNewPart() {
   }
   if (
     parts.some(function (p) {
-      return p.partNumber === pn;
+      return p.part_number === pn;
     })
   ) {
     showToast('Part number already exists', true);
     return;
   }
+
   let qty = parseInt(document.getElementById('newQuantity').value) || 0;
   let location = document.getElementById('newLocation').value.trim();
-  parts.push({
-    id: nextPartId++,
-    partNumber: pn,
+
+  let newPart = {
+    part_number: pn,
     description:
       document.getElementById('newDescription').value.trim() || 'New Part',
-    currentQty: qty,
-    baselineQty: qty,
+    current_qty: qty,
+    baseline_qty: qty,
     location: location || '',
-  });
-  saveData();
-  refreshAll();
-  hideModal('addPartModal');
-  document.getElementById('newPartNumber').value = '';
-  document.getElementById('newDescription').value = '';
-  document.getElementById('newLocation').value = '';
-  document.getElementById('newQuantity').value = 0;
-  showToast('✓ Part "' + pn + '" added successfully');
+  };
+
+  let savedPart = await savePart(newPart);
+  if (savedPart) {
+    parts.push(savedPart);
+    refreshAll();
+    hideModal('addPartModal');
+    document.getElementById('newPartNumber').value = '';
+    document.getElementById('newDescription').value = '';
+    document.getElementById('newLocation').value = '';
+    document.getElementById('newQuantity').value = 0;
+    showToast('✓ Part "' + pn + '" added successfully');
+  }
 }
 
-function saveEditPart() {
+async function saveEditPart() {
   let p = parts.find(function (x) {
     return x.id === currentEditPartId;
   });
@@ -789,21 +1138,30 @@ function saveEditPart() {
     }
     if (
       parts.some(function (x) {
-        return x.id !== currentEditPartId && x.partNumber === newPn;
+        return x.id !== currentEditPartId && x.part_number === newPn;
       })
     ) {
       showToast('Part number already exists', true);
       return;
     }
-    p.partNumber = newPn;
-    p.description = document.getElementById('editDescription').value;
-    p.location = document.getElementById('editLocation').value;
-    p.currentQty = parseInt(document.getElementById('editCurrentQty').value);
-    p.baselineQty = parseInt(document.getElementById('editBaselineQty').value);
-    saveData();
-    refreshAll();
-    hideModal('editModal');
-    showToast('✓ Part updated successfully');
+
+    let updates = {
+      part_number: newPn,
+      description: document.getElementById('editDescription').value,
+      location: document.getElementById('editLocation').value,
+      current_qty: parseInt(document.getElementById('editCurrentQty').value),
+      baseline_qty: parseInt(document.getElementById('editBaselineQty').value),
+    };
+
+    let updatedPart = await updatePart(currentEditPartId, updates);
+    if (updatedPart) {
+      // Update local array
+      let index = parts.findIndex((x) => x.id === currentEditPartId);
+      if (index !== -1) parts[index] = updatedPart;
+      refreshAll();
+      hideModal('editModal');
+      showToast('✓ Part updated successfully');
+    }
   }
 }
 
@@ -817,7 +1175,7 @@ function adjustQty(delta) {
 
 function showOrderReport() {
   let need = parts.filter(function (p) {
-    return p.currentQty < p.baselineQty;
+    return p.current_qty < p.baseline_qty;
   });
   let container = document.getElementById('reportListContainer');
   let totalNeeded = 0;
@@ -828,15 +1186,15 @@ function showOrderReport() {
     container.innerHTML = '';
     for (let i = 0; i < need.length; i++) {
       let p = need[i];
-      let shortage = p.baselineQty - p.currentQty;
+      let shortage = p.baseline_qty - p.current_qty;
       totalNeeded += shortage;
       let div = document.createElement('div');
       div.className = 'report-item';
       div.innerHTML =
         '<div class="report-item-info"><div class="report-item-part">' +
-        escapeHtml(p.partNumber) +
+        escapeHtml(p.part_number) +
         '</div><div class="report-item-desc">' +
-        escapeHtml(p.description) +
+        escapeHtml(p.description || '') +
         '</div></div><div class="report-item-qty">Need ' +
         shortage +
         '</div>';
@@ -850,7 +1208,7 @@ function showOrderReport() {
 
 function copyOrderAndRedirect() {
   let need = parts.filter(function (p) {
-    return p.currentQty < p.baselineQty;
+    return p.current_qty < p.baseline_qty;
   });
   if (need.length === 0) {
     showToast('No items to order', true);
@@ -859,9 +1217,9 @@ function copyOrderAndRedirect() {
   let text = '';
   for (let i = 0; i < need.length; i++) {
     text +=
-      need[i].partNumber +
+      need[i].part_number +
       ' - need ' +
-      (need[i].baselineQty - need[i].currentQty) +
+      (need[i].baseline_qty - need[i].current_qty) +
       '\n';
   }
   text = text.trim();
@@ -879,7 +1237,7 @@ function copyOrderAndRedirect() {
     });
 }
 
-function importExcel(rows) {
+async function importExcel(rows) {
   if (!rows.length) return;
   let pIdx = 0,
     dIdx = 1,
@@ -913,6 +1271,9 @@ function importExcel(rows) {
     rows[0] && String(rows[0][0]).toLowerCase().indexOf('part') !== -1 ? 1 : 0;
   let added = 0,
     updated = 0;
+
+  showSyncIndicator('Importing parts...');
+
   for (let i = start; i < rows.length; i++) {
     let row = rows[i];
     if (!row || row.length < 2) continue;
@@ -921,27 +1282,34 @@ function importExcel(rows) {
     let desc = row[dIdx] ? String(row[dIdx]).trim() : '';
     let qty = parseFloat(row[qIdx]) || 0;
     let loc = lIdx !== -1 && row[lIdx] ? String(row[lIdx]).trim() : '';
+
     let existing = parts.find(function (p) {
-      return p.partNumber === pn;
+      return p.part_number === pn;
     });
     if (existing) {
+      await updatePart(existing.id, {
+        description: desc,
+        baseline_qty: qty,
+        location: loc,
+      });
       existing.description = desc;
-      existing.baselineQty = qty;
+      existing.baseline_qty = qty;
       if (loc) existing.location = loc;
       updated++;
     } else {
-      parts.push({
-        id: nextPartId++,
-        partNumber: pn,
+      let newPart = await savePart({
+        part_number: pn,
         description: desc,
-        currentQty: qty,
-        baselineQty: qty,
+        current_qty: qty,
+        baseline_qty: qty,
         location: loc,
       });
+      if (newPart) parts.push(newPart);
       added++;
     }
   }
-  saveData();
+
+  hideSyncIndicator();
   refreshAll();
   showToast('Imported: ' + added + ' new, ' + updated + ' updated');
 }
@@ -950,8 +1318,8 @@ function updatePartDropdown(search) {
   let searchLower = search.toLowerCase();
   let filtered = parts.filter(function (p) {
     return (
-      p.partNumber.toLowerCase().indexOf(searchLower) !== -1 ||
-      p.description.toLowerCase().indexOf(searchLower) !== -1
+      p.part_number.toLowerCase().indexOf(searchLower) !== -1 ||
+      (p.description || '').toLowerCase().indexOf(searchLower) !== -1
     );
   });
   let dropdown = document.getElementById('partListDropdown');
@@ -969,11 +1337,11 @@ function updatePartDropdown(search) {
     div.className = 'part-option';
     div.innerHTML =
       '<strong>' +
-      escapeHtml(part.partNumber) +
+      escapeHtml(part.part_number) +
       '</strong><br><small>' +
-      escapeHtml(part.description).substring(0, 40) +
+      escapeHtml(part.description || '').substring(0, 40) +
       ' | Stock: ' +
-      part.currentQty +
+      part.current_qty +
       '</small>';
     div.onclick = (function (p) {
       return function () {
@@ -981,16 +1349,15 @@ function updatePartDropdown(search) {
         let selectedDisplay = document.getElementById('selectedPartDisplay');
         selectedDisplay.innerHTML =
           '<i class="fas fa-check-circle"></i> Selected: <strong>' +
-          escapeHtml(p.partNumber) +
+          escapeHtml(p.part_number) +
           '</strong> - Stock: ' +
-          p.currentQty +
+          p.current_qty +
           ' units';
         selectedDisplay.classList.add('show');
-        document.getElementById('partSearchInput').value = p.partNumber;
+        document.getElementById('partSearchInput').value = p.part_number;
         dropdown.style.display = 'none';
-        document.getElementById('usageQty').max = p.currentQty;
+        document.getElementById('usageQty').max = p.current_qty;
 
-        // Auto-hide the selected display after 3 seconds
         setTimeout(function () {
           if (selectedDisplay && selectedDisplay.classList) {
             selectedDisplay.classList.remove('show');
@@ -1016,13 +1383,13 @@ function showConfirmDeletePart(partId) {
   document.getElementById('confirmDetails').style.display = 'block';
   document.getElementById('confirmDetails').innerHTML =
     '<strong>Part Number:</strong> ' +
-    escapeHtml(part.partNumber) +
+    escapeHtml(part.part_number) +
     '<br><strong>Description:</strong> ' +
-    escapeHtml(part.description) +
+    escapeHtml(part.description || '') +
     '<br><strong>Current Stock:</strong> ' +
-    part.currentQty +
+    part.current_qty +
     '<br><strong>Baseline:</strong> ' +
-    part.baselineQty;
+    part.baseline_qty;
   showModal('confirmDeleteModal');
 }
 
@@ -1040,41 +1407,35 @@ function showConfirmDeleteLog(logId) {
   document.getElementById('confirmDetails').style.display = 'block';
   document.getElementById('confirmDetails').innerHTML =
     '<strong>Part:</strong> ' +
-    escapeHtml(log.partNumber) +
+    escapeHtml(log.part_number) +
     '<br><strong>Quantity Used:</strong> ' +
-    log.qtyUsed +
+    log.qty_used +
     '<br><strong>Date:</strong> ' +
-    escapeHtml(log.date) +
+    escapeHtml(new Date(log.created_at).toLocaleString()) +
     '<br><strong>Note:</strong> ' +
     escapeHtml(log.note || '—');
   showModal('confirmDeleteModal');
 }
 
-function executeDelete() {
+async function executeDelete() {
   if (pendingDeletePartId !== null) {
-    let part = parts.find(function (p) {
-      return p.id === pendingDeletePartId;
-    });
-    if (part) {
+    let success = await deletePart(pendingDeletePartId);
+    if (success) {
       parts = parts.filter(function (p) {
         return p.id !== pendingDeletePartId;
       });
-      saveData();
       refreshAll();
-      showToast('✓ Part "' + part.partNumber + '" deleted successfully');
+      showToast('✓ Part deleted successfully');
     }
     pendingDeletePartId = null;
   } else if (pendingDeleteLogId !== null) {
-    let log = usageLogs.find(function (l) {
-      return l.id === pendingDeleteLogId;
-    });
-    if (log) {
+    let success = await deleteUsageLog(pendingDeleteLogId);
+    if (success) {
       usageLogs = usageLogs.filter(function (l) {
         return l.id !== pendingDeleteLogId;
       });
-      saveData();
       refreshAll();
-      showToast('✓ Log entry for ' + log.partNumber + ' deleted successfully');
+      showToast('✓ Log entry deleted successfully');
     }
     pendingDeleteLogId = null;
   }
@@ -1088,7 +1449,8 @@ function cancelDelete() {
   hideModal('confirmDeleteModal');
 }
 
-// Quantity controls for usage modal
+// ========== UI INITIALIZATION ==========
+
 function initUsageQuantityControls() {
   let decrementBtn = document.getElementById('decrementUsageQty');
   let incrementBtn = document.getElementById('incrementUsageQty');
@@ -1114,7 +1476,6 @@ function initUsageQuantityControls() {
   }
 }
 
-// Mobile Menu Functions
 function initMobileMenu() {
   const hamburger = document.getElementById('hamburgerMenu');
   const dropdown = document.getElementById('mobileDropdown');
@@ -1180,61 +1541,87 @@ function initMobileMenu() {
   });
 }
 
-// Event Listeners
-document.getElementById('excelUpload').addEventListener('change', function (e) {
-  let f = e.target.files[0];
-  if (f) {
-    let r = new FileReader();
-    r.onload = function (ev) {
-      let wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
-      let rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
-        header: 1,
-        defval: '',
-      });
-      if (rows) importExcel(rows);
-      e.target.value = '';
-    };
-    r.readAsArrayBuffer(f);
-  }
+// ========== EVENT LISTENERS ==========
+
+// Auth event listeners
+document.getElementById('loginTab')?.addEventListener('click', switchToLogin);
+document
+  .getElementById('registerTab')
+  ?.addEventListener('click', switchToRegister);
+document.getElementById('loginBtn')?.addEventListener('click', function () {
+  let email = document.getElementById('loginEmail').value;
+  let password = document.getElementById('loginPassword').value;
+  if (email && password) login(email, password);
+  else showAuthMessage('Please enter email and password', 'error');
 });
+document.getElementById('registerBtn')?.addEventListener('click', function () {
+  let email = document.getElementById('registerEmail').value;
+  let password = document.getElementById('registerPassword').value;
+  let confirm = document.getElementById('registerConfirmPassword').value;
+  if (email && password) register(email, password, confirm);
+  else showAuthMessage('Please fill in all fields', 'error');
+});
+document.getElementById('logoutBtn')?.addEventListener('click', logout);
+
+// Main app event listeners
+document
+  .getElementById('excelUpload')
+  ?.addEventListener('change', function (e) {
+    let f = e.target.files[0];
+    if (f) {
+      let r = new FileReader();
+      r.onload = function (ev) {
+        let wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+        let rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
+          header: 1,
+          defval: '',
+        });
+        if (rows) importExcel(rows);
+        e.target.value = '';
+      };
+      r.readAsArrayBuffer(f);
+    }
+  });
 
 document
   .getElementById('allSearchInput')
-  .addEventListener('input', function (e) {
+  ?.addEventListener('input', function (e) {
     allState.search = e.target.value.toLowerCase();
     allState.page = 1;
     renderAllParts();
   });
 document
   .getElementById('allRowsPerPage')
-  .addEventListener('change', function (e) {
+  ?.addEventListener('change', function (e) {
     allState.rows = parseInt(e.target.value);
     allState.page = 1;
     renderAllParts();
   });
 document
   .getElementById('needSearchInput')
-  .addEventListener('input', function (e) {
+  ?.addEventListener('input', function (e) {
     needState.search = e.target.value.toLowerCase();
     renderNeedOrder();
   });
 document
   .getElementById('criticalSearchInput')
-  .addEventListener('input', function (e) {
+  ?.addEventListener('input', function (e) {
     criticalState.search = e.target.value.toLowerCase();
     renderCritical();
   });
 document
   .getElementById('logsSearchInput')
-  .addEventListener('input', function (e) {
+  ?.addEventListener('input', function (e) {
     logsSearch = e.target.value.toLowerCase();
     renderLogs();
   });
-document.getElementById('reportBtn').onclick = showOrderReport;
-document.getElementById('addPartBtn').onclick = function () {
+document
+  .getElementById('reportBtn')
+  ?.addEventListener('click', showOrderReport);
+document.getElementById('addPartBtn')?.addEventListener('click', function () {
   showModal('addPartModal');
-};
-document.getElementById('quickLogBtn').onclick = function () {
+});
+document.getElementById('quickLogBtn')?.addEventListener('click', function () {
   if (parts.length === 0) {
     showToast('No parts in inventory', true);
     return;
@@ -1251,77 +1638,110 @@ document.getElementById('quickLogBtn').onclick = function () {
   document.getElementById('usageNote').value = '';
   updatePartDropdown('');
   showModal('usageModal');
-};
-document.getElementById('scanQrBtn').onclick = openQrScanner;
-document.getElementById('manualQrSubmit').onclick = manualQrLookup;
-document.getElementById('cancelScanBtn').onclick = closeQrScanner;
-document.getElementById('decrementQtyBtn').onclick = function () {
-  adjustQty(-1);
-};
-document.getElementById('incrementQtyBtn').onclick = function () {
-  adjustQty(1);
-};
-document.getElementById('saveEditBtn').onclick = saveEditPart;
-document.getElementById('cancelEditBtn').onclick = function () {
-  hideModal('editModal');
-};
-document.getElementById('deleteFromEditBtn').onclick = function () {
-  if (currentEditPartId) {
+});
+document.getElementById('scanQrBtn')?.addEventListener('click', openQrScanner);
+document
+  .getElementById('manualQrSubmit')
+  ?.addEventListener('click', manualQrLookup);
+document
+  .getElementById('cancelScanBtn')
+  ?.addEventListener('click', closeQrScanner);
+document
+  .getElementById('decrementQtyBtn')
+  ?.addEventListener('click', function () {
+    adjustQty(-1);
+  });
+document
+  .getElementById('incrementQtyBtn')
+  ?.addEventListener('click', function () {
+    adjustQty(1);
+  });
+document.getElementById('saveEditBtn')?.addEventListener('click', saveEditPart);
+document
+  .getElementById('cancelEditBtn')
+  ?.addEventListener('click', function () {
     hideModal('editModal');
-    showConfirmDeletePart(currentEditPartId);
-  }
-};
-document.getElementById('saveAddBtn').onclick = addNewPart;
-document.getElementById('cancelAddBtn').onclick = function () {
+  });
+document
+  .getElementById('deleteFromEditBtn')
+  ?.addEventListener('click', function () {
+    if (currentEditPartId) {
+      hideModal('editModal');
+      showConfirmDeletePart(currentEditPartId);
+    }
+  });
+document.getElementById('saveAddBtn')?.addEventListener('click', addNewPart);
+document.getElementById('cancelAddBtn')?.addEventListener('click', function () {
   hideModal('addPartModal');
-};
-document.getElementById('confirmUsageBtn').onclick = function () {
-  if (!selectedPartId) {
-    showToast('Select a part', true);
-    return;
-  }
-  let qty = parseInt(document.getElementById('usageQty').value);
-  let note = document.getElementById('usageNote').value;
-  if (logUsage(selectedPartId, qty, note)) {
-    hideModal('usageModal');
-    selectedPartId = null;
-    document.getElementById('partSearchInput').value = '';
-    let selectedDisplay = document.getElementById('selectedPartDisplay');
-    selectedDisplay.classList.remove('show');
-    selectedDisplay.innerHTML = '';
-    document.getElementById('partListDropdown').innerHTML = '';
-    document.getElementById('partListDropdown').style.display = 'none';
-  }
-};
-document.getElementById('confirmProceedBtn').onclick = function () {
-  if (pendingPhotoDeletePartId !== null) {
-    executePhotoDelete();
-  } else {
-    executeDelete();
-  }
-};
-document.getElementById('confirmCancelBtn').onclick = cancelDelete;
-document.getElementById('createOrderBtn').onclick = copyOrderAndRedirect;
-document.getElementById('detailsEditBtn').onclick = editFromDetails;
-document.getElementById('detailsLogBtn').onclick = logFromDetails;
+});
+document
+  .getElementById('confirmUsageBtn')
+  ?.addEventListener('click', function () {
+    if (!selectedPartId) {
+      showToast('Select a part', true);
+      return;
+    }
+    let qty = parseInt(document.getElementById('usageQty').value);
+    let note = document.getElementById('usageNote').value;
+    if (logUsage(selectedPartId, qty, note)) {
+      hideModal('usageModal');
+      selectedPartId = null;
+      document.getElementById('partSearchInput').value = '';
+      let selectedDisplay = document.getElementById('selectedPartDisplay');
+      selectedDisplay.classList.remove('show');
+      selectedDisplay.innerHTML = '';
+      document.getElementById('partListDropdown').innerHTML = '';
+      document.getElementById('partListDropdown').style.display = 'none';
+    }
+  });
+document
+  .getElementById('confirmProceedBtn')
+  ?.addEventListener('click', function () {
+    if (pendingPhotoDeletePartId !== null) {
+      executePhotoDelete();
+    } else {
+      executeDelete();
+    }
+  });
+document
+  .getElementById('confirmCancelBtn')
+  ?.addEventListener('click', cancelDelete);
+document
+  .getElementById('createOrderBtn')
+  ?.addEventListener('click', copyOrderAndRedirect);
+document
+  .getElementById('detailsEditBtn')
+  ?.addEventListener('click', editFromDetails);
+document
+  .getElementById('detailsLogBtn')
+  ?.addEventListener('click', logFromDetails);
 document
   .getElementById('partSearchInput')
-  .addEventListener('input', function (e) {
+  ?.addEventListener('input', function (e) {
     updatePartDropdown(e.target.value);
   });
-document.getElementById('saveEditLogBtn').onclick = saveEditLog;
-document.getElementById('cancelEditLogBtn').onclick = function () {
-  hideModal('editLogModal');
-};
-document.getElementById('deleteLogBtn').onclick = function () {
+document
+  .getElementById('saveEditLogBtn')
+  ?.addEventListener('click', saveEditLog);
+document
+  .getElementById('cancelEditLogBtn')
+  ?.addEventListener('click', function () {
+    hideModal('editLogModal');
+  });
+document.getElementById('deleteLogBtn')?.addEventListener('click', function () {
   if (currentEditLogId) {
     hideModal('editLogModal');
     showConfirmDeleteLog(currentEditLogId);
   }
-};
-document.getElementById('capturePhotoBtn').onclick = capturePhoto;
-document.getElementById('cancelCameraBtn').onclick = closeCamera;
+});
+document
+  .getElementById('capturePhotoBtn')
+  ?.addEventListener('click', capturePhoto);
+document
+  .getElementById('cancelCameraBtn')
+  ?.addEventListener('click', closeCamera);
 
+// Close modal buttons
 let closeButtons = document.querySelectorAll('.close-modal');
 for (let i = 0; i < closeButtons.length; i++) {
   closeButtons[i].addEventListener('click', function (e) {
@@ -1363,11 +1783,11 @@ document.addEventListener('click', function (e) {
   }
 });
 
-// Initialize all components
+// Initialize
 initMobileMenu();
 initUsageQuantityControls();
-
 window.changeAllPage = changeAllPage;
 window.showPartDetails = showPartDetails;
-loadData();
-refreshAll();
+
+// Start the app by checking session
+checkSession();
