@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover"
     />
-    <title>Inventory Manager Pro v11.0 | Improved UI</title>
+    <title>Inventory Manager Pro v13.0 | Cloud Sync</title>
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
@@ -19,184 +19,270 @@
   </head>
   <body>
     <div class="container">
-      <div class="header">
-        <h1>
-          <i class="fas fa-cubes"></i> Inventory Manager Pro
-          <span class="version-badge">v11.0</span>
-        </h1>
-        <div class="stats-bar">
-          <div class="stat-card">
-            <i class="fas fa-boxes"></i> <span id="totalPartsStat">0</span>
+      <!-- Auth Container (shown when not logged in) -->
+      <div id="authContainer" class="auth-container">
+        <div class="auth-card">
+          <div class="auth-header">
+            <i class="fas fa-cubes"></i>
+            <h2>Inventory Manager Pro</h2>
+            <p>Sign in to manage your inventory</p>
           </div>
-          <div class="stat-card">
-            <i class="fas fa-exclamation-triangle"></i>
-            <span id="lowStockStat">0</span>
+
+          <div class="auth-tabs">
+            <button id="loginTab" class="auth-tab active">Login</button>
+            <button id="registerTab" class="auth-tab">Register</button>
           </div>
-        </div>
-      </div>
 
-      <div class="action-bar">
-        <label class="file-label" for="excelUpload"
-          ><i class="fas fa-upload"></i> Import</label
-        >
-        <input
-          type="file"
-          id="excelUpload"
-          accept=".xlsx, .xls, .csv"
-          style="display: none"
-        />
-        <button class="btn btn-secondary" id="addPartBtn">
-          <i class="fas fa-plus-circle"></i> Add Part
-        </button>
-        <button class="btn btn-secondary" id="quickLogBtn">
-          <i class="fas fa-pen-alt"></i> Log Usage
-        </button>
-        <button class="btn btn-primary" id="reportBtn">
-          <i class="fas fa-chart-line"></i> Order Report
-        </button>
-        <button id="scanQrBtn" class="btn btn-scan">
-          <i class="fas fa-qrcode"></i> Scan QR
-        </button>
-      </div>
-
-      <!-- Desktop Tab Navigation -->
-      <div class="tab-nav desktop-nav">
-        <button class="tab-btn active" data-tab="all">All Parts</button>
-        <button class="tab-btn" data-tab="needorder">Need Order</button>
-        <button class="tab-btn" data-tab="critical">Critical</button>
-        <button class="tab-btn" data-tab="logs">Usage Logs</button>
-      </div>
-
-      <!-- Mobile Hamburger Menu -->
-      <div class="mobile-nav">
-        <div class="hamburger-menu" id="hamburgerMenu">
-          <i class="fas fa-bars"></i>
-          <span>Menu</span>
-        </div>
-        <div class="mobile-dropdown" id="mobileDropdown">
-          <button class="mobile-tab-btn active" data-tab="all">
-            All Parts
-          </button>
-          <button class="mobile-tab-btn" data-tab="needorder">
-            Need Order
-          </button>
-          <button class="mobile-tab-btn" data-tab="critical">Critical</button>
-          <button class="mobile-tab-btn" data-tab="logs">Usage Logs</button>
-        </div>
-      </div>
-
-      <div id="tab-all" class="tab-content active">
-        <div class="search-section">
-          <div class="search-box">
-            <i class="fas fa-search"></i
-            ><input
-              type="text"
-              id="allSearchInput"
-              placeholder="Search parts..."
-            />
-          </div>
-          <div class="rows-select-wrapper">
-            <span class="rows-select-label">Show</span>
-            <div class="custom-select">
-              <select id="allRowsPerPage">
-                <option value="25">25</option>
-                <option value="50" selected>50</option>
-                <option value="100">100</option></select
-              ><i class="fas fa-chevron-down select-arrow"></i>
+          <!-- Login Form -->
+          <div id="loginForm" class="auth-form active">
+            <div class="form-group">
+              <label>Email</label>
+              <input
+                type="email"
+                id="loginEmail"
+                placeholder="Enter your email"
+              />
             </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input
+                type="password"
+                id="loginPassword"
+                placeholder="Enter your password"
+              />
+            </div>
+            <button id="loginBtn" class="btn btn-primary auth-btn">
+              Login
+            </button>
           </div>
+
+          <!-- Register Form -->
+          <div id="registerForm" class="auth-form">
+            <div class="form-group">
+              <label>Email</label>
+              <input
+                type="email"
+                id="registerEmail"
+                placeholder="Enter your email"
+              />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input
+                type="password"
+                id="registerPassword"
+                placeholder="Create a password"
+              />
+            </div>
+            <div class="form-group">
+              <label>Confirm Password</label>
+              <input
+                type="password"
+                id="registerConfirmPassword"
+                placeholder="Confirm your password"
+              />
+            </div>
+            <button id="registerBtn" class="btn btn-primary auth-btn">
+              Create Account
+            </button>
+          </div>
+
+          <div id="authMessage" class="auth-message"></div>
         </div>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Part Number</th>
-                <th>Description</th>
-                <th>Current Qty</th>
-                <th>Baseline</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="allPartsBody"></tbody>
-          </table>
-        </div>
-        <div id="allPagination" class="pagination"></div>
       </div>
 
-      <div id="tab-needorder" class="tab-content">
-        <div class="search-section">
-          <div class="search-box">
-            <i class="fas fa-search"></i
-            ><input type="text" id="needSearchInput" placeholder="Search..." />
+      <!-- Main App Container (hidden until logged in) -->
+      <div id="appContainer" style="display: none">
+        <div class="header">
+          <h1>
+            <i class="fas fa-cubes"></i> Inventory Manager Pro
+            <span class="version-badge">v13.0</span>
+          </h1>
+          <div class="stats-bar">
+            <div class="stat-card">
+              <i class="fas fa-boxes"></i> <span id="totalPartsStat">0</span>
+            </div>
+            <div class="stat-card">
+              <i class="fas fa-exclamation-triangle"></i>
+              <span id="lowStockStat">0</span>
+            </div>
+            <button
+              id="logoutBtn"
+              class="btn btn-secondary"
+              style="background: #e76f51; color: white"
+            >
+              <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
           </div>
         </div>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Part Number</th>
-                <th>Description</th>
-                <th>Current Qty</th>
-                <th>Baseline</th>
-                <th>Shortage</th>
-              </tr>
-            </thead>
-            <tbody id="needOrderBody"></tbody>
-          </table>
-        </div>
-        <div id="needPagination" class="pagination"></div>
-      </div>
 
-      <div id="tab-critical" class="tab-content">
-        <div class="search-section">
-          <div class="search-box">
-            <i class="fas fa-search"></i
-            ><input
-              type="text"
-              id="criticalSearchInput"
-              placeholder="Search..."
-            />
+        <div class="action-bar">
+          <label class="file-label" for="excelUpload"
+            ><i class="fas fa-upload"></i> Import</label
+          >
+          <input
+            type="file"
+            id="excelUpload"
+            accept=".xlsx, .xls, .csv"
+            style="display: none"
+          />
+          <button class="btn btn-secondary" id="addPartBtn">
+            <i class="fas fa-plus-circle"></i> Add Part
+          </button>
+          <button class="btn btn-secondary" id="quickLogBtn">
+            <i class="fas fa-pen-alt"></i> Log Usage
+          </button>
+          <button class="btn btn-primary" id="reportBtn">
+            <i class="fas fa-chart-line"></i> Order Report
+          </button>
+          <button id="scanQrBtn" class="btn btn-scan">
+            <i class="fas fa-qrcode"></i> Scan QR
+          </button>
+        </div>
+
+        <!-- Desktop Tab Navigation -->
+        <div class="tab-nav desktop-nav">
+          <button class="tab-btn active" data-tab="all">All Parts</button>
+          <button class="tab-btn" data-tab="needorder">Need Order</button>
+          <button class="tab-btn" data-tab="critical">Critical</button>
+          <button class="tab-btn" data-tab="logs">Usage Logs</button>
+        </div>
+
+        <!-- Mobile Hamburger Menu -->
+        <div class="mobile-nav">
+          <div class="hamburger-menu" id="hamburgerMenu">
+            <i class="fas fa-bars"></i>
+            <span>Menu</span>
+          </div>
+          <div class="mobile-dropdown" id="mobileDropdown">
+            <button class="mobile-tab-btn active" data-tab="all">
+              All Parts
+            </button>
+            <button class="mobile-tab-btn" data-tab="needorder">
+              Need Order
+            </button>
+            <button class="mobile-tab-btn" data-tab="critical">Critical</button>
+            <button class="mobile-tab-btn" data-tab="logs">Usage Logs</button>
           </div>
         </div>
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Part Number</th>
-                <th>Description</th>
-                <th>Current Qty</th>
-                <th>Baseline</th>
-                <th>% Left</th>
-              </tr>
-            </thead>
-            <tbody id="criticalBody"></tbody>
-          </table>
-        </div>
-        <div id="criticalPagination" class="pagination"></div>
-      </div>
 
-      <div id="tab-logs" class="tab-content">
-        <div class="logs-container">
-          <div class="logs-header">
-            <span
-              ><i class="fas fa-history"></i> Usage History
-              <span id="logCount"></span
-            ></span>
-            <div class="search-box" style="max-width: 260px">
+        <div id="tab-all" class="tab-content active">
+          <div class="search-section">
+            <div class="search-box">
               <i class="fas fa-search"></i
               ><input
                 type="text"
-                id="logsSearchInput"
-                placeholder="Filter..."
+                id="allSearchInput"
+                placeholder="Search parts..."
+              />
+            </div>
+            <div class="rows-select-wrapper">
+              <span class="rows-select-label">Show</span>
+              <div class="custom-select">
+                <select id="allRowsPerPage">
+                  <option value="25">25</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option></select
+                ><i class="fas fa-chevron-down select-arrow"></i>
+              </div>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Part Number</th>
+                  <th>Description</th>
+                  <th>Current Qty</th>
+                  <th>Baseline</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="allPartsBody"></tbody>
+            </table>
+          </div>
+          <div id="allPagination" class="pagination"></div>
+        </div>
+
+        <div id="tab-needorder" class="tab-content">
+          <div class="search-section">
+            <div class="search-box">
+              <i class="fas fa-search"></i
+              ><input
+                type="text"
+                id="needSearchInput"
+                placeholder="Search..."
               />
             </div>
           </div>
-          <div id="logsListContainer"></div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Part Number</th>
+                  <th>Description</th>
+                  <th>Current Qty</th>
+                  <th>Baseline</th>
+                  <th>Shortage</th>
+                </tr>
+              </thead>
+              <tbody id="needOrderBody"></tbody>
+            </table>
+          </div>
+          <div id="needPagination" class="pagination"></div>
+        </div>
+
+        <div id="tab-critical" class="tab-content">
+          <div class="search-section">
+            <div class="search-box">
+              <i class="fas fa-search"></i
+              ><input
+                type="text"
+                id="criticalSearchInput"
+                placeholder="Search..."
+              />
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Part Number</th>
+                  <th>Description</th>
+                  <th>Current Qty</th>
+                  <th>Baseline</th>
+                  <th>% Left</th>
+                </tr>
+              </thead>
+              <tbody id="criticalBody"></tbody>
+            </table>
+          </div>
+          <div id="criticalPagination" class="pagination"></div>
+        </div>
+
+        <div id="tab-logs" class="tab-content">
+          <div class="logs-container">
+            <div class="logs-header">
+              <span
+                ><i class="fas fa-history"></i> Usage History
+                <span id="logCount"></span
+              ></span>
+              <div class="search-box" style="max-width: 260px">
+                <i class="fas fa-search"></i
+                ><input
+                  type="text"
+                  id="logsSearchInput"
+                  placeholder="Filter..."
+                />
+              </div>
+            </div>
+            <div id="logsListContainer"></div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- QR Scanner Modal -->
+    <!-- All Modals (same as before) -->
     <div id="qrScannerModal" class="modal">
       <div class="modal-card qr-modal">
         <span class="close-modal" data-modal="qrScannerModal">&times;</span>
@@ -207,8 +293,9 @@
             type="text"
             id="manualQrInput"
             placeholder="Or manually enter part number..."
-          />
-          <button id="manualQrSubmit" class="btn btn-primary">Find Part</button>
+          /><button id="manualQrSubmit" class="btn btn-primary">
+            Find Part
+          </button>
         </div>
         <div id="qr-status" class="qr-status idle">
           <i class="fas fa-camera"></i> Ready to scan
@@ -219,7 +306,6 @@
       </div>
     </div>
 
-    <!-- Camera Modal -->
     <div id="cameraModal" class="modal">
       <div class="modal-card camera-modal">
         <span class="close-modal" data-modal="cameraModal">&times;</span>
@@ -230,36 +316,30 @@
         <canvas id="camera-canvas" style="display: none"></canvas>
         <div class="camera-buttons">
           <button id="capturePhotoBtn" class="btn btn-primary">
-            <i class="fas fa-camera"></i> Capture
-          </button>
-          <button id="cancelCameraBtn" class="btn btn-secondary">
+            <i class="fas fa-camera"></i> Capture</button
+          ><button id="cancelCameraBtn" class="btn btn-secondary">
             <i class="fas fa-times"></i> Cancel
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Part Details Modal -->
     <div id="partDetailsModal" class="modal">
       <div class="modal-card details-modal">
         <span class="close-modal" data-modal="partDetailsModal">&times;</span>
         <h3><i class="fas fa-info-circle"></i> Part Details</h3>
         <div id="partDetailsContent" class="details-grid"></div>
-        <div class="photo-container">
-          <div id="photoDisplay"></div>
-        </div>
+        <div class="photo-container"><div id="photoDisplay"></div></div>
         <div class="details-actions">
           <button id="detailsEditBtn" class="btn btn-secondary">
-            <i class="fas fa-edit"></i> Edit Part
-          </button>
-          <button id="detailsLogBtn" class="btn btn-primary">
+            <i class="fas fa-edit"></i> Edit Part</button
+          ><button id="detailsLogBtn" class="btn btn-primary">
             <i class="fas fa-clipboard-list"></i> Log Usage
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Edit Modal -->
     <div id="editModal" class="modal">
       <div class="modal-card">
         <span class="close-modal" data-modal="editModal">&times;</span>
@@ -294,9 +374,8 @@
           <div id="editPhotoDisplay"></div>
           <div class="photo-buttons">
             <button id="editTakePhotoBtn" class="btn btn-photo">
-              <i class="fas fa-camera"></i> Take Photo
-            </button>
-            <button
+              <i class="fas fa-camera"></i> Take Photo</button
+            ><button
               id="editRemovePhotoBtn"
               class="btn btn-secondary"
               style="display: none"
@@ -306,29 +385,27 @@
           </div>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-danger" id="deleteFromEditBtn">Delete</button>
-          <button class="btn btn-secondary" id="cancelEditBtn">Cancel</button>
-          <button class="btn btn-primary" id="saveEditBtn">Save</button>
+          <button class="btn btn-danger" id="deleteFromEditBtn">Delete</button
+          ><button class="btn btn-secondary" id="cancelEditBtn">Cancel</button
+          ><button class="btn btn-primary" id="saveEditBtn">Save</button>
         </div>
       </div>
     </div>
 
-    <!-- Order Report Modal -->
     <div id="orderReportModal" class="modal">
       <div class="modal-card report-modal">
         <span class="close-modal" data-modal="orderReportModal">&times;</span>
         <h3>Order Report</h3>
         <div id="reportListContainer" class="report-list"></div>
         <div class="report-footer">
-          <span class="report-total" id="reportTotalItems">Total: 0 items</span>
-          <button id="createOrderBtn" class="btn btn-order">
+          <span class="report-total" id="reportTotalItems">Total: 0 items</span
+          ><button id="createOrderBtn" class="btn btn-order">
             Create Order
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Confirm Delete Modal -->
     <div id="confirmDeleteModal" class="modal">
       <div class="modal-card confirm-modal">
         <span class="close-modal" data-modal="confirmDeleteModal">&times;</span>
@@ -343,21 +420,16 @@
           style="display: none"
         ></div>
         <div class="confirm-actions">
-          <button id="confirmCancelBtn" class="btn btn-secondary">
-            Cancel
-          </button>
-          <button id="confirmProceedBtn" class="btn btn-danger">Delete</button>
+          <button id="confirmCancelBtn" class="btn btn-secondary">Cancel</button
+          ><button id="confirmProceedBtn" class="btn btn-danger">Delete</button>
         </div>
       </div>
     </div>
 
-    <!-- Usage Modal - IMPROVED VERSION -->
     <div id="usageModal" class="modal">
       <div class="modal-card">
         <span class="close-modal" data-modal="usageModal">&times;</span>
         <h3><i class="fas fa-tools"></i> Log Usage</h3>
-
-        <!-- Part Search Section -->
         <div class="usage-part-search">
           <label class="form-label">Select Part</label>
           <div class="searchable-dropdown">
@@ -371,45 +443,36 @@
           </div>
           <div id="selectedPartDisplay" class="usage-selected-part"></div>
         </div>
-
-        <!-- Quantity Section -->
         <div class="form-group">
           <label>Quantity to Remove</label>
           <div class="quantity-input-wrapper">
             <button type="button" id="decrementUsageQty" class="qty-btn">
-              <i class="fas fa-minus"></i>
-            </button>
-            <input
+              <i class="fas fa-minus"></i></button
+            ><input
               type="number"
               id="usageQty"
               class="quantity-input"
               min="1"
               value="1"
-            />
-            <button type="button" id="incrementUsageQty" class="qty-btn">
+            /><button type="button" id="incrementUsageQty" class="qty-btn">
               <i class="fas fa-plus"></i>
             </button>
           </div>
         </div>
-
-        <!-- Note Section -->
         <div class="form-group">
-          <label>Note (Optional)</label>
-          <textarea
+          <label>Note (Optional)</label
+          ><textarea
             id="usageNote"
             rows="3"
             placeholder="e.g., Used for machine repair, maintenance, etc..."
           ></textarea>
         </div>
-
-        <!-- Action Buttons -->
         <button id="confirmUsageBtn" class="btn btn-primary confirm-usage-btn">
           <i class="fas fa-check-circle"></i> Confirm & Subtract
         </button>
       </div>
     </div>
 
-    <!-- Edit Log Modal -->
     <div id="editLogModal" class="modal">
       <div class="modal-card">
         <span class="close-modal" data-modal="editLogModal">&times;</span>
@@ -428,16 +491,14 @@
           <label>Note</label><textarea id="editLogNote" rows="2"></textarea>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-danger" id="deleteLogBtn">Delete</button>
-          <button class="btn btn-secondary" id="cancelEditLogBtn">
-            Cancel
-          </button>
-          <button class="btn btn-primary" id="saveEditLogBtn">Save</button>
+          <button class="btn btn-danger" id="deleteLogBtn">Delete</button
+          ><button class="btn btn-secondary" id="cancelEditLogBtn">
+            Cancel</button
+          ><button class="btn btn-primary" id="saveEditLogBtn">Save</button>
         </div>
       </div>
     </div>
 
-    <!-- Add Part Modal -->
     <div id="addPartModal" class="modal">
       <div class="modal-card">
         <span class="close-modal" data-modal="addPartModal">&times;</span>
@@ -456,8 +517,8 @@
           ><input type="number" id="newQuantity" value="0" />
         </div>
         <div class="modal-actions">
-          <button class="btn btn-secondary" id="cancelAddBtn">Cancel</button>
-          <button class="btn btn-primary" id="saveAddBtn">Add</button>
+          <button class="btn btn-secondary" id="cancelAddBtn">Cancel</button
+          ><button class="btn btn-primary" id="saveAddBtn">Add</button>
         </div>
       </div>
     </div>
@@ -466,6 +527,9 @@
 
     <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
+
