@@ -1,4 +1,4 @@
-// app.js - Inventory Manager Pro v13.0 with Supabase
+// app.js - Inventory Manager Pro v14.0 with Admin Panel
 
 // Get Supabase client from window
 const supabaseClient = window.supabaseClient;
@@ -7,6 +7,16 @@ const supabaseClient = window.supabaseClient;
 let parts = [];
 let usageLogs = [];
 let currentUser = null;
+let isAdmin = false;
+let currentEditingUser = null;
+let windowCurrentPermissions = {
+  canEditParts: false,
+  canDeleteParts: false,
+  canEditLogs: false,
+  canDeleteLogs: false,
+  canAddParts: false,
+  canLogUsage: false,
+};
 
 // UI State
 let allState = { page: 1, rows: 50, search: '' };
@@ -37,6 +47,8 @@ async function checkSession() {
   } = await supabaseClient.auth.getSession();
   if (session) {
     currentUser = session.user;
+    await checkAdminStatus();
+    await updateUIByPermissions();
     showApp();
     await loadAllData();
   } else {
@@ -61,6 +73,8 @@ async function login(email, password) {
   }
 
   currentUser = data.user;
+  await checkAdminStatus();
+  await updateUIByPermissions();
   showApp();
   await loadAllData();
   return true;
@@ -104,6 +118,7 @@ async function logout() {
     showToast(error.message, true);
   } else {
     currentUser = null;
+    isAdmin = false;
     parts = [];
     usageLogs = [];
     showAuth();
@@ -163,6 +178,289 @@ function switchToRegister() {
   document.getElementById('registerPassword').value = '';
   document.getElementById('registerConfirmPassword').value = '';
   showAuthMessage('', '');
+}
+
+// ========== ADMIN FUNCTIONS ==========
+
+async function checkAdminStatus() {
+  if (!currentUser) return false;
+
+  const { data, error } = await supabaseClient
+    .from('profiles')
+    .select('*')
+    .eq('id', currentUser.id)
+    .single();
+
+  if (error) {
+    console.error('Error checking admin status:', error);
+    return false;
+  }
+
+  isAdmin = data?.is_admin === true;
+
+  // Store permissions
+  windowCurrentPermissions = {
+    canEditParts: data?.can_edit_parts || isAdmin,
+    canDeleteParts: data?.can_delete_parts || isAdmin,
+    canEditLogs: data?.can_edit_logs || isAdmin,
+    canDeleteLogs: data?.can_delete_logs || isAdmin,
+    canAddParts: data?.can_add_parts || isAdmin,
+    canLogUsage: data?.can_log_usage || isAdmin,
+  };
+
+  // Show/hide admin panel button
+  const adminBtn = document.getElementById('adminPanelBtn');
+  if (adminBtn) {
+    adminBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+  }
+
+  return isAdmin;
+}
+
+async function loadAllUsers(searchTerm = '') {
+  if (!isAdmin) return [];
+
+  let query = supabaseClient
+    .from('profiles')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (searchTerm) {
+    query = query.ilike('email', `%${searchTerm}%`);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    showToast('Error loading users: ' + error.message, true);
+    return [];
+  }
+
+  return data || [];
+}
+
+async function getUserPermissions(userId) {
+  const { data, error } = await supabaseClient
+    .from('profiles')
+    .select('*')
+    .eq('id', userId)
+    .single();
+
+  if (error) {
+    showToast('Error loading user permissions: ' + error.message, true);
+    return null;
+  }
+
+  return data;
+}
+
+async function updateUserPermissions(userId, permissions) {
+  if (!isAdmin) {
+    showToast('Admin access required', true);
+    return false;
+  }
+
+  const { error } = await supabaseClient
+    .from('profiles')
+    .update({
+      can_add_parts: permissions.can_add_parts,
+      can_edit_parts: permissions.can_edit_parts,
+      can_delete_parts: permissions.can_delete_parts,
+      can_log_usage: permissions.can_log_usage,
+      can_edit_logs: permissions.can_edit_logs,
+      can_delete_logs: permissions.can_delete_logs,
+      is_admin: permissions.is_admin,
+      updated_at: new Date(),
+    })
+    .eq('id', userId);
+
+  if (error) {
+    showToast('Error updating permissions: ' + error.message, true);
+    return false;
+  }
+
+  showToast('Permissions updated successfully');
+  return true;
+}
+
+async function renderAdminPanel() {
+  const userListDiv = document.getElementById('adminUserList');
+  if (!userListDiv) return;
+
+  const searchTerm = document.getElementById('adminUserSearch')?.value || '';
+  const users = await loadAllUsers(searchTerm);
+  const adminCount = users.filter((u) => u.is_admin).length;
+
+  document.getElementById('totalUsersCount').innerText = users.length;
+  document.getElementById('adminCount').innerText = adminCount;
+
+  if (users.length === 0) {
+    userListDiv.innerHTML =
+      '<div style="text-align:center; padding:20px; color:#94a3b8;">No users found</div>';
+    return;
+  }
+
+  let html = '';
+  for (const user of users) {
+    const isCurrentUser = user.id === currentUser?.id;
+    html += `
+            <div class="admin-user-item" data-user-id="${user.id}" data-user-email="${escapeHtml(user.email)}">
+                <div class="admin-user-info">
+                    <div class="admin-user-email">${escapeHtml(user.email)}</div>
+                    <div>
+                        <span class="admin-user-badge ${user.is_admin ? 'badge-admin' : 'badge-user'}">
+                            ${user.is_admin ? '👑 Admin' : '👤 User'}
+                        </span>
+                        ${isCurrentUser ? ' <span style="font-size:0.7rem; color:#94a3b8;">(You)</span>' : ''}
+                    </div>
+                </div>
+                <div class="admin-user-actions">
+                    <button class="admin-action-btn" onclick="openUserPermissions('${user.id}')">
+                        <i class="fas fa-sliders-h"></i> Permissions
+                    </button>
+                </div>
+            </div>
+        `;
+  }
+  userListDiv.innerHTML = html;
+}
+
+window.openUserPermissions = async function (userId) {
+  if (!isAdmin) {
+    showToast('Admin access required', true);
+    return;
+  }
+
+  currentEditingUser = await getUserPermissions(userId);
+  if (!currentEditingUser) return;
+
+  document.getElementById('userPermissionsHeader').innerHTML = `
+        <h4>${escapeHtml(currentEditingUser.email)}</h4>
+        <p>${currentEditingUser.is_admin ? 'Administrator - Full Access' : 'Standard User'}</p>
+    `;
+
+  document.getElementById('permAddParts').checked =
+    currentEditingUser.can_add_parts || currentEditingUser.is_admin;
+  document.getElementById('permEditParts').checked =
+    currentEditingUser.can_edit_parts || currentEditingUser.is_admin;
+  document.getElementById('permDeleteParts').checked =
+    currentEditingUser.can_delete_parts || currentEditingUser.is_admin;
+  document.getElementById('permLogUsage').checked =
+    currentEditingUser.can_log_usage || currentEditingUser.is_admin;
+  document.getElementById('permEditLogs').checked =
+    currentEditingUser.can_edit_logs || currentEditingUser.is_admin;
+  document.getElementById('permDeleteLogs').checked =
+    currentEditingUser.can_delete_logs || currentEditingUser.is_admin;
+  document.getElementById('permIsAdmin').checked = currentEditingUser.is_admin;
+
+  const isEditingAdmin = currentEditingUser.is_admin;
+  const isCurrentUser = currentEditingUser.id === currentUser?.id;
+
+  const toggles = [
+    'permAddParts',
+    'permEditParts',
+    'permDeleteParts',
+    'permLogUsage',
+    'permEditLogs',
+    'permDeleteLogs',
+    'permIsAdmin',
+  ];
+  toggles.forEach((toggleId) => {
+    const toggle = document.getElementById(toggleId);
+    if (toggle) {
+      toggle.disabled =
+        isEditingAdmin || (toggleId === 'permIsAdmin' && isCurrentUser);
+      const parent = toggle.closest('.permission-item');
+      if (parent) {
+        parent.style.opacity =
+          isEditingAdmin || (toggleId === 'permIsAdmin' && isCurrentUser)
+            ? '0.5'
+            : '1';
+      }
+    }
+  });
+
+  showModal('userPermissionsModal');
+};
+
+async function saveUserPermissions() {
+  if (!currentEditingUser) return;
+
+  if (currentEditingUser.id === currentUser?.id) {
+    const newAdminStatus = document.getElementById('permIsAdmin').checked;
+    if (!newAdminStatus && currentEditingUser.is_admin) {
+      showToast('You cannot remove your own admin status!', true);
+      return;
+    }
+  }
+
+  const permissions = {
+    can_add_parts: document.getElementById('permAddParts').checked,
+    can_edit_parts: document.getElementById('permEditParts').checked,
+    can_delete_parts: document.getElementById('permDeleteParts').checked,
+    can_log_usage: document.getElementById('permLogUsage').checked,
+    can_edit_logs: document.getElementById('permEditLogs').checked,
+    can_delete_logs: document.getElementById('permDeleteLogs').checked,
+    is_admin: document.getElementById('permIsAdmin').checked,
+  };
+
+  await updateUserPermissions(currentEditingUser.id, permissions);
+  hideModal('userPermissionsModal');
+  await renderAdminPanel();
+
+  if (currentEditingUser.id === currentUser?.id) {
+    await checkAdminStatus();
+    await updateUIByPermissions();
+  }
+}
+
+async function openAdminPanel() {
+  if (!isAdmin) {
+    showToast('Admin access required', true);
+    return;
+  }
+  await renderAdminPanel();
+  showModal('adminPanelModal');
+}
+
+async function userHasPermission(permission) {
+  if (!currentUser) return false;
+  if (isAdmin) return true;
+
+  const { data, error } = await supabaseClient
+    .from('profiles')
+    .select(permission)
+    .eq('id', currentUser.id)
+    .single();
+
+  if (error) return false;
+  return data?.[permission] || false;
+}
+
+async function updateUIByPermissions() {
+  if (!currentUser) return;
+
+  const canAddParts = await userHasPermission('can_add_parts');
+  const canLogUsage = await userHasPermission('can_log_usage');
+
+  const addPartBtn = document.getElementById('addPartBtn');
+  const quickLogBtn = document.getElementById('quickLogBtn');
+  const importLabel = document.querySelector('.file-label');
+
+  if (addPartBtn)
+    addPartBtn.style.display = canAddParts ? 'inline-flex' : 'none';
+  if (quickLogBtn)
+    quickLogBtn.style.display = canLogUsage ? 'inline-flex' : 'none';
+  if (importLabel) importLabel.style.display = isAdmin ? 'inline-flex' : 'none';
+
+  windowCurrentPermissions = {
+    canEditParts: await userHasPermission('can_edit_parts'),
+    canDeleteParts: await userHasPermission('can_delete_parts'),
+    canEditLogs: await userHasPermission('can_edit_logs'),
+    canDeleteLogs: await userHasPermission('can_delete_logs'),
+    canAddParts: canAddParts,
+    canLogUsage: canLogUsage,
+  };
 }
 
 // ========== DATABASE FUNCTIONS ==========
@@ -745,7 +1043,7 @@ function renderAllParts() {
   if (!tbody) return;
   if (pageItems.length === 0) {
     tbody.innerHTML =
-      '<tr><td colspan="5" style="text-align:center;padding:30px;">No parts found<\/td><\/tr>';
+      '<tr><td colspan="6" style="text-align:center;padding:30px;">No parts found<\/td><\/tr>';
   } else {
     tbody.innerHTML = '';
     for (let i = 0; i < pageItems.length; i++) {
@@ -773,6 +1071,26 @@ function renderAllParts() {
           : '<span class="status-badge status-warning">Order needed</span>'
         : '<span class="status-badge status-ok">OK</span>';
       row.insertCell(4).innerHTML = statusHtml;
+
+      const canEdit = windowCurrentPermissions.canEditParts || isAdmin;
+      const canDelete = windowCurrentPermissions.canDeleteParts || isAdmin;
+
+      if (canEdit || canDelete) {
+        let actions = '';
+        if (canEdit)
+          actions +=
+            '<button class="icon-btn" onclick="openEditPart(' +
+            p.id +
+            ')"><i class="fas fa-edit"></i> Edit</button> ';
+        if (canDelete)
+          actions +=
+            '<button class="icon-btn" onclick="showConfirmDeletePart(' +
+            p.id +
+            ')"><i class="fas fa-trash"></i> Delete</button>';
+        row.insertCell(5).innerHTML = actions;
+      } else {
+        row.insertCell(5).innerHTML = '';
+      }
     }
   }
   let container = document.getElementById('allPagination');
@@ -789,6 +1107,194 @@ function renderAllParts() {
       return p.current_qty < p.baseline_qty;
     },
   ).length;
+}
+
+function renderNeedOrder() {
+  let needParts = parts.filter(function (p) {
+    return p.current_qty < p.baseline_qty;
+  });
+  if (needState.search && needState.search.length > 0) {
+    let searchTerm = needState.search.toLowerCase();
+    needParts = needParts.filter(function (p) {
+      return (
+        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
+        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
+      );
+    });
+  }
+  let tbody = document.getElementById('needOrderBody');
+  if (tbody) {
+    if (needParts.length === 0) {
+      tbody.innerHTML =
+        '<tr><td colspan="6" style="text-align:center;padding:30px;">No parts need ordering<\/td><\/tr>';
+    } else {
+      let html = '';
+      const canEdit = windowCurrentPermissions.canEditParts || isAdmin;
+      const canDelete = windowCurrentPermissions.canDeleteParts || isAdmin;
+
+      for (let i = 0; i < needParts.length; i++) {
+        let p = needParts[i];
+        let shortage = p.baseline_qty - p.current_qty;
+        let actions = '';
+        if (canEdit)
+          actions +=
+            '<button class="icon-btn" onclick="openEditPart(' +
+            p.id +
+            ')"><i class="fas fa-edit"></i> Edit</button>';
+        if (canDelete)
+          actions +=
+            '<button class="icon-btn" onclick="showConfirmDeletePart(' +
+            p.id +
+            ')"><i class="fas fa-trash"></i> Delete</button>';
+        html +=
+          '<tr>' +
+          '<td><span class="clickable-part" onclick="showPartDetails(' +
+          p.id +
+          ')"><strong>' +
+          escapeHtml(p.part_number) +
+          '</strong></span></td>' +
+          '<td>' +
+          escapeHtml(p.description || '').substring(0, 40) +
+          '</td>' +
+          '<td><span class="current-qty-display">' +
+          p.current_qty +
+          '</span></td>' +
+          '<td>' +
+          p.baseline_qty +
+          '</td>' +
+          '<td style="color:#e76f51;font-weight:600;">' +
+          shortage +
+          '<\/td>' +
+          '<td>' +
+          actions +
+          '<\/td>' +
+          '<\/tr>';
+      }
+      tbody.innerHTML = html;
+    }
+  }
+}
+
+function renderCritical() {
+  let criticalParts = parts.filter(function (p) {
+    return p.current_qty < p.baseline_qty * 0.5;
+  });
+  if (criticalState.search && criticalState.search.length > 0) {
+    let searchTerm = criticalState.search.toLowerCase();
+    criticalParts = criticalParts.filter(function (p) {
+      return (
+        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
+        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
+      );
+    });
+  }
+  let tbody = document.getElementById('criticalBody');
+  if (tbody) {
+    if (criticalParts.length === 0) {
+      tbody.innerHTML =
+        '<tr><td colspan="6" style="text-align:center;padding:30px;">No critical parts<\/td><\/tr>';
+    } else {
+      let html = '';
+      const canEdit = windowCurrentPermissions.canEditParts || isAdmin;
+      const canDelete = windowCurrentPermissions.canDeleteParts || isAdmin;
+
+      for (let i = 0; i < criticalParts.length; i++) {
+        let p = criticalParts[i];
+        let percent = Math.round((p.current_qty / p.baseline_qty) * 100);
+        let actions = '';
+        if (canEdit)
+          actions +=
+            '<button class="icon-btn" onclick="openEditPart(' +
+            p.id +
+            ')"><i class="fas fa-edit"></i> Edit</button>';
+        if (canDelete)
+          actions +=
+            '<button class="icon-btn" onclick="showConfirmDeletePart(' +
+            p.id +
+            ')"><i class="fas fa-trash"></i> Delete</button>';
+        html +=
+          '<tr class="stock-critical">' +
+          '<td><span class="clickable-part" onclick="showPartDetails(' +
+          p.id +
+          ')"><strong>' +
+          escapeHtml(p.part_number) +
+          '</strong></span></td>' +
+          '<td>' +
+          escapeHtml(p.description || '').substring(0, 40) +
+          '</td>' +
+          '<td><span class="current-qty-display">' +
+          p.current_qty +
+          '</span></td>' +
+          '<td>' +
+          p.baseline_qty +
+          '</td>' +
+          '<td style="color:#c2410c;font-weight:600;">' +
+          percent +
+          '%<\/td>' +
+          '<td>' +
+          actions +
+          '<\/td>' +
+          '<\/tr>';
+      }
+      tbody.innerHTML = html;
+    }
+  }
+}
+
+function renderLogs() {
+  let filtered = usageLogs;
+  if (logsSearch && logsSearch.length > 0) {
+    filtered = usageLogs.filter(function (l) {
+      return (
+        l.part_number.toLowerCase().indexOf(logsSearch) !== -1 ||
+        (l.note || '').toLowerCase().indexOf(logsSearch) !== -1
+      );
+    });
+  }
+  document.getElementById('logCount').innerHTML = '(' + filtered.length + ')';
+  let container = document.getElementById('logsListContainer');
+  if (container) {
+    if (filtered.length === 0) {
+      container.innerHTML =
+        '<div style="padding:60px;text-align:center;color:#94a3b8;">No usage records</div>';
+    } else {
+      let html = '';
+      const canEditLogs = windowCurrentPermissions.canEditLogs || isAdmin;
+      const canDeleteLogs = windowCurrentPermissions.canDeleteLogs || isAdmin;
+
+      for (let i = 0; i < filtered.length; i++) {
+        let l = filtered[i];
+        let actions = '';
+        if (canEditLogs)
+          actions +=
+            '<button class="icon-btn" onclick="openEditLog(' +
+            l.id +
+            ')"><i class="fas fa-edit"></i></button>';
+        if (canDeleteLogs)
+          actions +=
+            '<button class="icon-btn" onclick="showConfirmDeleteLog(' +
+            l.id +
+            ')"><i class="fas fa-trash"></i></button>';
+        html +=
+          '<div class="log-entry"><div><i class="far fa-calendar-alt"></i> ' +
+          escapeHtml(new Date(l.created_at).toLocaleString()) +
+          '</div><div><strong>' +
+          escapeHtml(l.part_number) +
+          '</strong> <span style="color:#e76f51;">-' +
+          l.qty_used +
+          '</span></div><div><i class="fas fa-comment"></i> ' +
+          escapeHtml(l.note || '—') +
+          '</div><div>' +
+          l.previous_stock +
+          ' → ' +
+          l.new_stock +
+          '</div><div>' +
+          actions +
+          '</div></div>';
+      }
+      container.innerHTML = html;
+    }
+  }
 }
 
 function renderPagination(page, total, func) {
@@ -829,146 +1335,6 @@ function changeAllPage(p) {
   renderAllParts();
 }
 
-function renderNeedOrder() {
-  let needParts = parts.filter(function (p) {
-    return p.current_qty < p.baseline_qty;
-  });
-  if (needState.search && needState.search.length > 0) {
-    let searchTerm = needState.search.toLowerCase();
-    needParts = needParts.filter(function (p) {
-      return (
-        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
-        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
-      );
-    });
-  }
-  let tbody = document.getElementById('needOrderBody');
-  if (tbody) {
-    if (needParts.length === 0) {
-      tbody.innerHTML =
-        '<tr><td colspan="5" style="text-align:center;padding:30px;">No parts need ordering<\/td><\/tr>';
-    } else {
-      let html = '';
-      for (let i = 0; i < needParts.length; i++) {
-        let p = needParts[i];
-        let shortage = p.baseline_qty - p.current_qty;
-        html +=
-          '<tr>' +
-          '<td><span class="clickable-part" onclick="showPartDetails(' +
-          p.id +
-          ')"><strong>' +
-          escapeHtml(p.part_number) +
-          '</strong></span></td>' +
-          '<td>' +
-          escapeHtml(p.description || '').substring(0, 40) +
-          '</td>' +
-          '<td><span class="current-qty-display">' +
-          p.current_qty +
-          '</span></td>' +
-          '<td>' +
-          p.baseline_qty +
-          '</td>' +
-          '<td style="color:#e76f51;font-weight:600;">' +
-          shortage +
-          '<\/td>' +
-          '<\/tr>';
-      }
-      tbody.innerHTML = html;
-    }
-  }
-}
-
-function renderCritical() {
-  let criticalParts = parts.filter(function (p) {
-    return p.current_qty < p.baseline_qty * 0.5;
-  });
-  if (criticalState.search && criticalState.search.length > 0) {
-    let searchTerm = criticalState.search.toLowerCase();
-    criticalParts = criticalParts.filter(function (p) {
-      return (
-        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
-        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
-      );
-    });
-  }
-  let tbody = document.getElementById('criticalBody');
-  if (tbody) {
-    if (criticalParts.length === 0) {
-      tbody.innerHTML =
-        '<tr><td colspan="5" style="text-align:center;padding:30px;">No critical parts<\/td><\/tr>';
-    } else {
-      let html = '';
-      for (let i = 0; i < criticalParts.length; i++) {
-        let p = criticalParts[i];
-        let percent = Math.round((p.current_qty / p.baseline_qty) * 100);
-        html +=
-          '<tr class="stock-critical">' +
-          '<td><span class="clickable-part" onclick="showPartDetails(' +
-          p.id +
-          ')"><strong>' +
-          escapeHtml(p.part_number) +
-          '</strong></span></td>' +
-          '<td>' +
-          escapeHtml(p.description || '').substring(0, 40) +
-          '</td>' +
-          '<td><span class="current-qty-display">' +
-          p.current_qty +
-          '</span></td>' +
-          '<td>' +
-          p.baseline_qty +
-          '</td>' +
-          '<td style="color:#c2410c;font-weight:600;">' +
-          percent +
-          '%<\/td>' +
-          '<\/tr>';
-      }
-      tbody.innerHTML = html;
-    }
-  }
-}
-
-function renderLogs() {
-  let filtered = usageLogs;
-  if (logsSearch && logsSearch.length > 0) {
-    filtered = usageLogs.filter(function (l) {
-      return (
-        l.part_number.toLowerCase().indexOf(logsSearch) !== -1 ||
-        (l.note || '').toLowerCase().indexOf(logsSearch) !== -1
-      );
-    });
-  }
-  document.getElementById('logCount').innerHTML = '(' + filtered.length + ')';
-  let container = document.getElementById('logsListContainer');
-  if (container) {
-    if (filtered.length === 0) {
-      container.innerHTML =
-        '<div style="padding:60px;text-align:center;color:#94a3b8;">No usage records</div>';
-    } else {
-      let html = '';
-      for (let i = 0; i < filtered.length; i++) {
-        let l = filtered[i];
-        html +=
-          '<div class="log-entry"><div><i class="far fa-calendar-alt"></i> ' +
-          escapeHtml(new Date(l.created_at).toLocaleString()) +
-          '</div><div><strong>' +
-          escapeHtml(l.part_number) +
-          '</strong> <span style="color:#e76f51;">-' +
-          l.qty_used +
-          '</span></div><div><i class="fas fa-comment"></i> ' +
-          escapeHtml(l.note || '—') +
-          '</div><div>' +
-          l.previous_stock +
-          ' → ' +
-          l.new_stock +
-          '</div><div><button class="icon-btn" onclick="openEditLog(' +
-          l.id +
-          ')"><i class="fas fa-edit"></i></button></div></div>';
-      }
-      container.innerHTML = html;
-    }
-  }
-}
-
 function refreshAll() {
   renderAllParts();
   renderNeedOrder();
@@ -979,6 +1345,12 @@ function refreshAll() {
 // ========== EDIT FUNCTIONS ==========
 
 window.openEditPart = function (id) {
+  const canEdit = windowCurrentPermissions.canEditParts || isAdmin;
+  if (!canEdit) {
+    showToast('You do not have permission to edit parts', true);
+    return;
+  }
+
   let p = parts.find(function (x) {
     return x.id === id;
   });
@@ -1040,6 +1412,12 @@ window.openQuickLog = function (id) {
 };
 
 window.openEditLog = function (id) {
+  const canEdit = windowCurrentPermissions.canEditLogs || isAdmin;
+  if (!canEdit) {
+    showToast('You do not have permission to edit logs', true);
+    return;
+  }
+
   let log = usageLogs.find(function (l) {
     return l.id === id;
   });
@@ -1082,6 +1460,12 @@ async function saveEditLog() {
 }
 
 async function addNewPart() {
+  const canAdd = windowCurrentPermissions.canAddParts || isAdmin;
+  if (!canAdd) {
+    showToast('You do not have permission to add parts', true);
+    return;
+  }
+
   let pn = document.getElementById('newPartNumber').value.trim();
   if (!pn) {
     showToast('Part number required', true);
@@ -1233,6 +1617,11 @@ function copyOrderAndRedirect() {
 
 async function importExcel(rows) {
   if (!rows.length) return;
+  if (!isAdmin) {
+    showToast('Only admins can import Excel files', true);
+    return;
+  }
+
   let pIdx = 0,
     dIdx = 1,
     qIdx = 2,
@@ -1364,6 +1753,12 @@ function updatePartDropdown(search) {
 }
 
 function showConfirmDeletePart(partId) {
+  const canDelete = windowCurrentPermissions.canDeleteParts || isAdmin;
+  if (!canDelete) {
+    showToast('You do not have permission to delete parts', true);
+    return;
+  }
+
   let part = parts.find(function (p) {
     return p.id === partId;
   });
@@ -1388,6 +1783,12 @@ function showConfirmDeletePart(partId) {
 }
 
 function showConfirmDeleteLog(logId) {
+  const canDelete = windowCurrentPermissions.canDeleteLogs || isAdmin;
+  if (!canDelete) {
+    showToast('You do not have permission to delete logs', true);
+    return;
+  }
+
   let log = usageLogs.find(function (l) {
     return l.id === logId;
   });
@@ -1735,6 +2136,24 @@ document
   .getElementById('cancelCameraBtn')
   ?.addEventListener('click', closeCamera);
 
+// Admin panel event listeners
+document
+  .getElementById('adminPanelBtn')
+  ?.addEventListener('click', openAdminPanel);
+document
+  .getElementById('closeAdminPanelBtn')
+  ?.addEventListener('click', () => hideModal('adminPanelModal'));
+document
+  .getElementById('adminUserSearch')
+  ?.addEventListener('input', () => renderAdminPanel());
+document
+  .getElementById('savePermissionsBtn')
+  ?.addEventListener('click', saveUserPermissions);
+document
+  .getElementById('cancelPermissionsBtn')
+  ?.addEventListener('click', () => hideModal('userPermissionsModal'));
+
+// Close modal buttons
 let closeButtons = document.querySelectorAll('.close-modal');
 for (let i = 0; i < closeButtons.length; i++) {
   closeButtons[i].addEventListener('click', function (e) {
@@ -1781,4 +2200,5 @@ initMobileMenu();
 initUsageQuantityControls();
 window.changeAllPage = changeAllPage;
 window.showPartDetails = showPartDetails;
+window.openUserPermissions = window.openUserPermissions;
 checkSession();
