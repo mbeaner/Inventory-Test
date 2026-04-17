@@ -1,4 +1,4 @@
-// app.js - Inventory Manager Pro v14.0 with Admin Panel
+// app.js - Inventory Manager Pro v16.1.7 with Tab Persistence
 
 // Get Supabase client from window
 const supabaseClient = window.supabaseClient;
@@ -33,6 +33,13 @@ let pendingPhotoDeletePartId = null;
 let html5QrCode = null;
 let isScannerActive = false;
 
+// Sorting state
+let allSortField = 'part_number';
+let allSortDirection = 'asc';
+
+// Tab persistence
+const STORAGE_KEY = 'inventoryManager_activeTab';
+
 // Camera variables
 let cameraStream = null;
 let pendingPhotoPartId = null;
@@ -41,24 +48,38 @@ let reopenEditAfterPhoto = false;
 // ========== AUTHENTICATION FUNCTIONS ==========
 
 async function checkSession() {
+  const loadingScreen = document.getElementById('loadingScreen');
+  const authContainer = document.getElementById('authContainer');
+  const appContainer = document.getElementById('appContainer');
+
+  if (authContainer) authContainer.style.display = 'none';
+  if (appContainer) appContainer.style.display = 'none';
+  if (loadingScreen) loadingScreen.style.display = 'flex';
+
   const {
     data: { session },
     error,
   } = await supabaseClient.auth.getSession();
+
   if (session) {
     currentUser = session.user;
     await checkAdminStatus();
     await updateUIByPermissions();
-    showApp();
+    if (loadingScreen) loadingScreen.style.display = 'none';
+    if (appContainer) appContainer.style.display = 'block';
     await loadAllData();
   } else {
-    showAuth();
+    if (loadingScreen) loadingScreen.style.display = 'none';
+    if (authContainer) authContainer.style.display = 'flex';
   }
 }
 
 async function login(email, password) {
   showAuthMessage('', '');
   setAuthLoading(true);
+
+  const loadingScreen = document.getElementById('loadingScreen');
+  if (loadingScreen) loadingScreen.style.display = 'flex';
 
   const { data, error } = await supabaseClient.auth.signInWithPassword({
     email: email,
@@ -68,6 +89,7 @@ async function login(email, password) {
   setAuthLoading(false);
 
   if (error) {
+    if (loadingScreen) loadingScreen.style.display = 'none';
     showAuthMessage(error.message, 'error');
     return false;
   }
@@ -75,7 +97,13 @@ async function login(email, password) {
   currentUser = data.user;
   await checkAdminStatus();
   await updateUIByPermissions();
-  showApp();
+
+  if (loadingScreen) loadingScreen.style.display = 'none';
+  const authContainer = document.getElementById('authContainer');
+  const appContainer = document.getElementById('appContainer');
+  if (authContainer) authContainer.style.display = 'none';
+  if (appContainer) appContainer.style.display = 'block';
+
   await loadAllData();
   return true;
 }
@@ -95,6 +123,9 @@ async function register(email, password, confirmPassword) {
 
   setAuthLoading(true);
 
+  const loadingScreen = document.getElementById('loadingScreen');
+  if (loadingScreen) loadingScreen.style.display = 'flex';
+
   const { data, error } = await supabaseClient.auth.signUp({
     email: email,
     password: password,
@@ -103,24 +134,31 @@ async function register(email, password, confirmPassword) {
   setAuthLoading(false);
 
   if (error) {
+    if (loadingScreen) loadingScreen.style.display = 'none';
     showAuthMessage(error.message, 'error');
     return false;
   }
 
+  if (loadingScreen) loadingScreen.style.display = 'none';
   showAuthMessage('Account created! Please login.', 'success');
   switchToLogin();
   return true;
 }
 
 async function logout() {
+  const loadingScreen = document.getElementById('loadingScreen');
+  if (loadingScreen) loadingScreen.style.display = 'flex';
+
   const { error } = await supabaseClient.auth.signOut();
   if (error) {
     showToast(error.message, true);
+    if (loadingScreen) loadingScreen.style.display = 'none';
   } else {
     currentUser = null;
     isAdmin = false;
     parts = [];
     usageLogs = [];
+    if (loadingScreen) loadingScreen.style.display = 'none';
     showAuth();
   }
 }
@@ -180,6 +218,51 @@ function switchToRegister() {
   showAuthMessage('', '');
 }
 
+// ========== TAB PERSISTENCE FUNCTIONS ==========
+
+function saveActiveTab(tabId) {
+  localStorage.setItem(STORAGE_KEY, tabId);
+}
+
+function loadActiveTab() {
+  return localStorage.getItem(STORAGE_KEY);
+}
+
+function activateTab(tabId) {
+  const mobileTabBtns = document.querySelectorAll('.mobile-tab-btn');
+  const desktopTabBtns = document.querySelectorAll('.tab-btn');
+
+  desktopTabBtns.forEach((btn) => {
+    if (btn.getAttribute('data-tab') === tabId) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  mobileTabBtns.forEach((btn) => {
+    if (btn.getAttribute('data-tab') === tabId) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  document.querySelectorAll('.tab-content').forEach((tc) => {
+    tc.classList.remove('active');
+  });
+  document.getElementById('tab-' + tabId).classList.add('active');
+}
+
+function restoreActiveTab() {
+  const savedTab = loadActiveTab();
+  if (savedTab && ['all', 'needorder', 'critical', 'logs'].includes(savedTab)) {
+    activateTab(savedTab);
+  } else {
+    activateTab('all');
+  }
+}
+
 // ========== ADMIN FUNCTIONS ==========
 
 async function checkAdminStatus() {
@@ -198,7 +281,6 @@ async function checkAdminStatus() {
 
   isAdmin = data?.is_admin === true;
 
-  // Store permissions
   windowCurrentPermissions = {
     canEditParts: data?.can_edit_parts || isAdmin,
     canDeleteParts: data?.can_delete_parts || isAdmin,
@@ -208,7 +290,6 @@ async function checkAdminStatus() {
     canLogUsage: data?.can_log_usage || isAdmin,
   };
 
-  // Show/hide admin panel button
   const adminBtn = document.getElementById('adminPanelBtn');
   if (adminBtn) {
     adminBtn.style.display = isAdmin ? 'inline-flex' : 'none';
@@ -557,9 +638,16 @@ async function deletePart(id) {
 }
 
 async function saveUsageLog(log) {
+  const userEmail = currentUser?.email || 'Unknown User';
+
+  const logWithUser = {
+    ...log,
+    created_by_email: userEmail,
+  };
+
   const { data, error } = await supabaseClient
     .from('usage_logs')
-    .insert([log])
+    .insert([logWithUser])
     .select();
 
   if (error) {
@@ -652,7 +740,6 @@ function showToast(msg, isErr) {
   }, 2500);
 }
 
-let syncTimeout;
 function showSyncIndicator(message) {
   let existing = document.querySelector('.sync-indicator');
   if (existing) existing.remove();
@@ -971,6 +1058,12 @@ function showPartDetails(id) {
 }
 
 function editFromDetails() {
+  const canEdit = windowCurrentPermissions.canEditParts || isAdmin;
+  if (!canEdit) {
+    showToast('You do not have permission to edit parts', true);
+    return;
+  }
+
   if (currentDetailsPartId) {
     hideModal('partDetailsModal');
     openEditPart(currentDetailsPartId);
@@ -978,6 +1071,12 @@ function editFromDetails() {
 }
 
 function logFromDetails() {
+  const canLog = windowCurrentPermissions.canLogUsage || isAdmin;
+  if (!canLog) {
+    showToast('You do not have permission to log usage', true);
+    return;
+  }
+
   if (currentDetailsPartId) {
     hideModal('partDetailsModal');
     openQuickLog(currentDetailsPartId);
@@ -1023,6 +1122,112 @@ async function logUsage(partId, qty, note) {
   return true;
 }
 
+// ========== LOG DETAILS FUNCTION ==========
+
+function showLogDetails(logId) {
+  let log = usageLogs.find(function (l) {
+    return l.id === logId;
+  });
+  if (!log) return;
+
+  const canEdit = windowCurrentPermissions.canEditLogs || isAdmin;
+  const canDelete = windowCurrentPermissions.canDeleteLogs || isAdmin;
+
+  let html = `
+        <div class="details-row">
+            <div class="details-label">Part Number</div>
+            <div class="details-value"><strong>${escapeHtml(log.part_number)}</strong></div>
+        </div>
+        <div class="details-row">
+            <div class="details-label">Quantity Used</div>
+            <div class="details-value"><span style="color:#e76f51; font-weight:600;">-${log.qty_used}</span></div>
+        </div>
+        <div class="details-row">
+            <div class="details-label">Stock Change</div>
+            <div class="details-value">${log.previous_stock} → ${log.new_stock}</div>
+        </div>
+        <div class="details-row">
+            <div class="details-label">Date & Time</div>
+            <div class="details-value">${escapeHtml(new Date(log.created_at).toLocaleString())}</div>
+        </div>
+        <div class="details-row">
+            <div class="details-label">Created By</div>
+            <div class="details-value"><i class="fas fa-user"></i> ${escapeHtml(log.created_by_email || 'Unknown User')}</div>
+        </div>
+        <div class="details-row">
+            <div class="details-label">Note</div>
+            <div class="details-value">${escapeHtml(log.note || '—')}</div>
+        </div>
+    `;
+
+  document.getElementById('logDetailsContent').innerHTML = html;
+
+  const editBtn = document.getElementById('logDetailsEditBtn');
+  const deleteBtn = document.getElementById('logDetailsDeleteBtn');
+
+  if (editBtn) {
+    if (canEdit) {
+      editBtn.style.display = 'inline-flex';
+      editBtn.onclick = function () {
+        hideModal('logDetailsModal');
+        openEditLog(log.id);
+      };
+    } else {
+      editBtn.style.display = 'none';
+    }
+  }
+
+  if (deleteBtn) {
+    if (canDelete) {
+      deleteBtn.style.display = 'inline-flex';
+      deleteBtn.onclick = function () {
+        hideModal('logDetailsModal');
+        showConfirmDeleteLog(log.id);
+      };
+    } else {
+      deleteBtn.style.display = 'none';
+    }
+  }
+
+  showModal('logDetailsModal');
+}
+
+// ========== RENDER FUNCTIONS ==========
+
+function handleSort(field) {
+  if (allSortField === field) {
+    allSortDirection = allSortDirection === 'asc' ? 'desc' : 'asc';
+  } else {
+    allSortField = field;
+    allSortDirection = 'asc';
+  }
+  allState.page = 1;
+  renderAllParts();
+}
+
+function updateSortIcons() {
+  const headers = document.querySelectorAll('#tab-all .sortable');
+  headers.forEach((header) => {
+    const field = header.getAttribute('data-sort');
+    const icon = header.querySelector('i');
+    if (icon) {
+      icon.classList.remove('fa-sort', 'fa-sort-up', 'fa-sort-down');
+
+      if (field === allSortField) {
+        if (allSortDirection === 'asc') {
+          icon.classList.add('fa-sort-up');
+        } else {
+          icon.classList.add('fa-sort-down');
+        }
+        header.classList.add(allSortDirection);
+      } else {
+        icon.classList.add('fa-sort');
+        header.classList.remove('asc', 'desc');
+      }
+    }
+  });
+}
+
 function renderAllParts() {
   let filtered = parts;
   if (allState.search && allState.search.length > 0) {
@@ -1033,6 +1238,30 @@ function renderAllParts() {
       );
     });
   }
+
+  filtered = [...filtered].sort(function (a, b) {
+    let valA = a[allSortField];
+    let valB = b[allSortField];
+
+    if (valA === undefined || valA === null) valA = '';
+    if (valB === undefined || valB === null) valB = '';
+
+    if (allSortField === 'current_qty' || allSortField === 'baseline_qty') {
+      valA = Number(valA) || 0;
+      valB = Number(valB) || 0;
+      return allSortDirection === 'asc' ? valA - valB : valB - valA;
+    }
+
+    valA = String(valA).toLowerCase();
+    valB = String(valB).toLowerCase();
+
+    if (allSortDirection === 'asc') {
+      return valA.localeCompare(valB);
+    } else {
+      return valB.localeCompare(valA);
+    }
+  });
+
   let totalPages = Math.ceil(filtered.length / allState.rows) || 1;
   if (allState.page > totalPages) allState.page = 1;
   let pageItems = filtered.slice(
@@ -1043,7 +1272,7 @@ function renderAllParts() {
   if (!tbody) return;
   if (pageItems.length === 0) {
     tbody.innerHTML =
-      '<tr><td colspan="6" style="text-align:center;padding:30px;">No parts found<\/td><\/tr>';
+      '<tr><td colspan="5" style="text-align:center;padding:30px;">No parts found<\/td><\/tr>';
   } else {
     tbody.innerHTML = '';
     for (let i = 0; i < pageItems.length; i++) {
@@ -1071,26 +1300,6 @@ function renderAllParts() {
           : '<span class="status-badge status-warning">Order needed</span>'
         : '<span class="status-badge status-ok">OK</span>';
       row.insertCell(4).innerHTML = statusHtml;
-
-      const canEdit = windowCurrentPermissions.canEditParts || isAdmin;
-      const canDelete = windowCurrentPermissions.canDeleteParts || isAdmin;
-
-      if (canEdit || canDelete) {
-        let actions = '';
-        if (canEdit)
-          actions +=
-            '<button class="icon-btn" onclick="openEditPart(' +
-            p.id +
-            ')"><i class="fas fa-edit"></i> Edit</button> ';
-        if (canDelete)
-          actions +=
-            '<button class="icon-btn" onclick="showConfirmDeletePart(' +
-            p.id +
-            ')"><i class="fas fa-trash"></i> Delete</button>';
-        row.insertCell(5).innerHTML = actions;
-      } else {
-        row.insertCell(5).innerHTML = '';
-      }
     }
   }
   let container = document.getElementById('allPagination');
@@ -1107,194 +1316,8 @@ function renderAllParts() {
       return p.current_qty < p.baseline_qty;
     },
   ).length;
-}
 
-function renderNeedOrder() {
-  let needParts = parts.filter(function (p) {
-    return p.current_qty < p.baseline_qty;
-  });
-  if (needState.search && needState.search.length > 0) {
-    let searchTerm = needState.search.toLowerCase();
-    needParts = needParts.filter(function (p) {
-      return (
-        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
-        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
-      );
-    });
-  }
-  let tbody = document.getElementById('needOrderBody');
-  if (tbody) {
-    if (needParts.length === 0) {
-      tbody.innerHTML =
-        '<tr><td colspan="6" style="text-align:center;padding:30px;">No parts need ordering<\/td><\/tr>';
-    } else {
-      let html = '';
-      const canEdit = windowCurrentPermissions.canEditParts || isAdmin;
-      const canDelete = windowCurrentPermissions.canDeleteParts || isAdmin;
-
-      for (let i = 0; i < needParts.length; i++) {
-        let p = needParts[i];
-        let shortage = p.baseline_qty - p.current_qty;
-        let actions = '';
-        if (canEdit)
-          actions +=
-            '<button class="icon-btn" onclick="openEditPart(' +
-            p.id +
-            ')"><i class="fas fa-edit"></i> Edit</button>';
-        if (canDelete)
-          actions +=
-            '<button class="icon-btn" onclick="showConfirmDeletePart(' +
-            p.id +
-            ')"><i class="fas fa-trash"></i> Delete</button>';
-        html +=
-          '<tr>' +
-          '<td><span class="clickable-part" onclick="showPartDetails(' +
-          p.id +
-          ')"><strong>' +
-          escapeHtml(p.part_number) +
-          '</strong></span></td>' +
-          '<td>' +
-          escapeHtml(p.description || '').substring(0, 40) +
-          '</td>' +
-          '<td><span class="current-qty-display">' +
-          p.current_qty +
-          '</span></td>' +
-          '<td>' +
-          p.baseline_qty +
-          '</td>' +
-          '<td style="color:#e76f51;font-weight:600;">' +
-          shortage +
-          '<\/td>' +
-          '<td>' +
-          actions +
-          '<\/td>' +
-          '<\/tr>';
-      }
-      tbody.innerHTML = html;
-    }
-  }
-}
-
-function renderCritical() {
-  let criticalParts = parts.filter(function (p) {
-    return p.current_qty < p.baseline_qty * 0.5;
-  });
-  if (criticalState.search && criticalState.search.length > 0) {
-    let searchTerm = criticalState.search.toLowerCase();
-    criticalParts = criticalParts.filter(function (p) {
-      return (
-        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
-        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
-      );
-    });
-  }
-  let tbody = document.getElementById('criticalBody');
-  if (tbody) {
-    if (criticalParts.length === 0) {
-      tbody.innerHTML =
-        '<tr><td colspan="6" style="text-align:center;padding:30px;">No critical parts<\/td><\/tr>';
-    } else {
-      let html = '';
-      const canEdit = windowCurrentPermissions.canEditParts || isAdmin;
-      const canDelete = windowCurrentPermissions.canDeleteParts || isAdmin;
-
-      for (let i = 0; i < criticalParts.length; i++) {
-        let p = criticalParts[i];
-        let percent = Math.round((p.current_qty / p.baseline_qty) * 100);
-        let actions = '';
-        if (canEdit)
-          actions +=
-            '<button class="icon-btn" onclick="openEditPart(' +
-            p.id +
-            ')"><i class="fas fa-edit"></i> Edit</button>';
-        if (canDelete)
-          actions +=
-            '<button class="icon-btn" onclick="showConfirmDeletePart(' +
-            p.id +
-            ')"><i class="fas fa-trash"></i> Delete</button>';
-        html +=
-          '<tr class="stock-critical">' +
-          '<td><span class="clickable-part" onclick="showPartDetails(' +
-          p.id +
-          ')"><strong>' +
-          escapeHtml(p.part_number) +
-          '</strong></span></td>' +
-          '<td>' +
-          escapeHtml(p.description || '').substring(0, 40) +
-          '</td>' +
-          '<td><span class="current-qty-display">' +
-          p.current_qty +
-          '</span></td>' +
-          '<td>' +
-          p.baseline_qty +
-          '</td>' +
-          '<td style="color:#c2410c;font-weight:600;">' +
-          percent +
-          '%<\/td>' +
-          '<td>' +
-          actions +
-          '<\/td>' +
-          '<\/tr>';
-      }
-      tbody.innerHTML = html;
-    }
-  }
-}
-
-function renderLogs() {
-  let filtered = usageLogs;
-  if (logsSearch && logsSearch.length > 0) {
-    filtered = usageLogs.filter(function (l) {
-      return (
-        l.part_number.toLowerCase().indexOf(logsSearch) !== -1 ||
-        (l.note || '').toLowerCase().indexOf(logsSearch) !== -1
-      );
-    });
-  }
-  document.getElementById('logCount').innerHTML = '(' + filtered.length + ')';
-  let container = document.getElementById('logsListContainer');
-  if (container) {
-    if (filtered.length === 0) {
-      container.innerHTML =
-        '<div style="padding:60px;text-align:center;color:#94a3b8;">No usage records</div>';
-    } else {
-      let html = '';
-      const canEditLogs = windowCurrentPermissions.canEditLogs || isAdmin;
-      const canDeleteLogs = windowCurrentPermissions.canDeleteLogs || isAdmin;
-
-      for (let i = 0; i < filtered.length; i++) {
-        let l = filtered[i];
-        let actions = '';
-        if (canEditLogs)
-          actions +=
-            '<button class="icon-btn" onclick="openEditLog(' +
-            l.id +
-            ')"><i class="fas fa-edit"></i></button>';
-        if (canDeleteLogs)
-          actions +=
-            '<button class="icon-btn" onclick="showConfirmDeleteLog(' +
-            l.id +
-            ')"><i class="fas fa-trash"></i></button>';
-        html +=
-          '<div class="log-entry"><div><i class="far fa-calendar-alt"></i> ' +
-          escapeHtml(new Date(l.created_at).toLocaleString()) +
-          '</div><div><strong>' +
-          escapeHtml(l.part_number) +
-          '</strong> <span style="color:#e76f51;">-' +
-          l.qty_used +
-          '</span></div><div><i class="fas fa-comment"></i> ' +
-          escapeHtml(l.note || '—') +
-          '</div><div>' +
-          l.previous_stock +
-          ' → ' +
-          l.new_stock +
-          '</div><div>' +
-          actions +
-          '</div></div>';
-      }
-      container.innerHTML = html;
-    }
-  }
+  updateSortIcons();
 }
 
 function renderPagination(page, total, func) {
@@ -1333,6 +1356,139 @@ function renderPagination(page, total, func) {
 function changeAllPage(p) {
   allState.page = p;
   renderAllParts();
+}
+
+function renderNeedOrder() {
+  let needParts = parts.filter(function (p) {
+    return p.current_qty < p.baseline_qty;
+  });
+  if (needState.search && needState.search.length > 0) {
+    let searchTerm = needState.search.toLowerCase();
+    needParts = needParts.filter(function (p) {
+      return (
+        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
+        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
+      );
+    });
+  }
+  let tbody = document.getElementById('needOrderBody');
+  if (tbody) {
+    if (needParts.length === 0) {
+      tbody.innerHTML =
+        '<tr><td colspan="5" style="text-align:center;padding:30px;">No parts need ordering<\/td><\/tr>';
+    } else {
+      let html = '';
+      for (let i = 0; i < needParts.length; i++) {
+        let p = needParts[i];
+        let shortage = p.baseline_qty - p.current_qty;
+        html +=
+          '<td>' +
+          '<td><span class="clickable-part" onclick="showPartDetails(' +
+          p.id +
+          ')"><strong>' +
+          escapeHtml(p.part_number) +
+          '</strong></span></td>' +
+          '<td>' +
+          escapeHtml(p.description || '').substring(0, 40) +
+          '</td>' +
+          '<td><span class="current-qty-display">' +
+          p.current_qty +
+          '</span></td>' +
+          '<td>' +
+          p.baseline_qty +
+          '</td>' +
+          '<td style="color:#e76f51;font-weight:600;">' +
+          shortage +
+          '<\/td>' +
+          '<\/tr>';
+      }
+      tbody.innerHTML = html;
+    }
+  }
+}
+
+function renderCritical() {
+  let criticalParts = parts.filter(function (p) {
+    return p.current_qty < p.baseline_qty * 0.5;
+  });
+  if (criticalState.search && criticalState.search.length > 0) {
+    let searchTerm = criticalState.search.toLowerCase();
+    criticalParts = criticalParts.filter(function (p) {
+      return (
+        p.part_number.toLowerCase().indexOf(searchTerm) !== -1 ||
+        (p.description || '').toLowerCase().indexOf(searchTerm) !== -1
+      );
+    });
+  }
+  let tbody = document.getElementById('criticalBody');
+  if (tbody) {
+    if (criticalParts.length === 0) {
+      tbody.innerHTML =
+        '<tr><td colspan="5" style="text-align:center;padding:30px;">No critical parts<\/td><\/tr>';
+    } else {
+      let html = '';
+      for (let i = 0; i < criticalParts.length; i++) {
+        let p = criticalParts[i];
+        let percent = Math.round((p.current_qty / p.baseline_qty) * 100);
+        html +=
+          '<tr class="stock-critical">' +
+          '<td><span class="clickable-part" onclick="showPartDetails(' +
+          p.id +
+          ')"><strong>' +
+          escapeHtml(p.part_number) +
+          '</strong></span></td>' +
+          '<td>' +
+          escapeHtml(p.description || '').substring(0, 40) +
+          '</td>' +
+          '<td><span class="current-qty-display">' +
+          p.current_qty +
+          '</span></td>' +
+          '<td>' +
+          p.baseline_qty +
+          '</td>' +
+          '<td style="color:#c2410c;font-weight:600;">' +
+          percent +
+          '%<\/td>' +
+          '<\/tr>';
+      }
+      tbody.innerHTML = html;
+    }
+  }
+}
+
+function renderLogs() {
+  let filtered = usageLogs;
+  if (logsSearch && logsSearch.length > 0) {
+    filtered = usageLogs.filter(function (l) {
+      return (
+        l.part_number.toLowerCase().indexOf(logsSearch) !== -1 ||
+        (l.note || '').toLowerCase().indexOf(logsSearch) !== -1
+      );
+    });
+  }
+  document.getElementById('logCount').innerHTML = '(' + filtered.length + ')';
+  let container = document.getElementById('logsListContainer');
+  if (container) {
+    if (filtered.length === 0) {
+      container.innerHTML =
+        '<div style="padding:60px;text-align:center;color:#94a3b8;">No usage records</div>';
+    } else {
+      let html = '';
+      for (let i = 0; i < filtered.length; i++) {
+        let l = filtered[i];
+        html += `
+                    <div class="log-entry clickable-log" data-log-id="${l.id}" onclick="showLogDetails(${l.id})">
+                        <div><i class="far fa-calendar-alt"></i> ${escapeHtml(new Date(l.created_at).toLocaleString())}</div>
+                        <div><strong>${escapeHtml(l.part_number)}</strong></div>
+                        <div><span style="color:#e76f51; font-weight:600;">-${l.qty_used}</span></div>
+                        <div>${l.previous_stock} → ${l.new_stock}</div>
+                        <div><i class="fas fa-comment"></i> ${escapeHtml(l.note || '—')}</div>
+                    </div>
+                `;
+      }
+      container.innerHTML = html;
+    }
+  }
 }
 
 function refreshAll() {
@@ -1892,6 +2048,7 @@ function initMobileMenu() {
     }
   });
 
+  // Mobile tab clicks with persistence
   mobileTabBtns.forEach(function (btn) {
     btn.addEventListener('click', function () {
       let tabId = this.getAttribute('data-tab');
@@ -1910,10 +2067,16 @@ function initMobileMenu() {
         tc.classList.remove('active');
       });
       document.getElementById('tab-' + tabId).classList.add('active');
+
+      // Save active tab to localStorage
+      saveActiveTab(tabId);
+
+      // Close dropdown on mobile after selection
       dropdown.classList.remove('show');
     });
   });
 
+  // Desktop tab clicks with persistence
   desktopTabBtns.forEach(function (btn) {
     btn.addEventListener('click', function () {
       let tabId = this.getAttribute('data-tab');
@@ -1932,6 +2095,9 @@ function initMobileMenu() {
         tc.classList.remove('active');
       });
       document.getElementById('tab-' + tabId).classList.add('active');
+
+      // Save active tab to localStorage
+      saveActiveTab(tabId);
     });
   });
 }
@@ -2153,6 +2319,21 @@ document
   .getElementById('cancelPermissionsBtn')
   ?.addEventListener('click', () => hideModal('userPermissionsModal'));
 
+// Log Details Modal event listeners
+document
+  .getElementById('logDetailsCloseBtn')
+  ?.addEventListener('click', function () {
+    hideModal('logDetailsModal');
+  });
+
+// Sorting event listeners
+document.querySelectorAll('#tab-all .sortable').forEach((header) => {
+  header.addEventListener('click', function () {
+    const sortField = this.getAttribute('data-sort');
+    handleSort(sortField);
+  });
+});
+
 // Close modal buttons
 let closeButtons = document.querySelectorAll('.close-modal');
 for (let i = 0; i < closeButtons.length; i++) {
@@ -2200,5 +2381,9 @@ initMobileMenu();
 initUsageQuantityControls();
 window.changeAllPage = changeAllPage;
 window.showPartDetails = showPartDetails;
+window.showLogDetails = showLogDetails;
 window.openUserPermissions = window.openUserPermissions;
 checkSession();
+
+// Restore the last active tab after everything is loaded
+restoreActiveTab();
