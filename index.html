@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover"
     />
-    <title>Inventory Manager Pro v14.0 | Admin Panel</title>
+    <title>Inventory Manager Pro v16.1.4 | Clickable Logs</title>
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
@@ -18,9 +18,15 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen">
+      <div class="loading-spinner-large"></div>
+      <p>Loading Inventory Manager...</p>
+    </div>
+
     <div class="container">
       <!-- Auth Container (shown when not logged in) -->
-      <div id="authContainer" class="auth-container">
+      <div id="authContainer" class="auth-container" style="display: none">
         <div class="auth-card">
           <div class="auth-header">
             <i class="fas fa-cubes"></i>
@@ -96,7 +102,7 @@
         <div class="header">
           <h1>
             <i class="fas fa-cubes"></i> Inventory Manager Pro
-            <span class="version-badge">v14.0</span>
+            <span class="version-badge">v16.1.4</span>
           </h1>
           <div class="stats-bar">
             <div class="stat-card">
@@ -198,12 +204,19 @@
             <table>
               <thead>
                 <tr>
-                  <th>Part Number</th>
-                  <th>Description</th>
-                  <th>Current Qty</th>
-                  <th>Baseline</th>
+                  <th class="sortable" data-sort="part_number">
+                    Part Number <i class="fas fa-sort"></i>
+                  </th>
+                  <th class="sortable" data-sort="description">
+                    Description <i class="fas fa-sort"></i>
+                  </th>
+                  <th class="sortable" data-sort="current_qty">
+                    Current Qty <i class="fas fa-sort"></i>
+                  </th>
+                  <th class="sortable" data-sort="baseline_qty">
+                    Baseline <i class="fas fa-sort"></i>
+                  </th>
                   <th>Status</th>
-                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="allPartsBody"></tbody>
@@ -232,7 +245,6 @@
                   <th>Current Qty</th>
                   <th>Baseline</th>
                   <th>Shortage</th>
-                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="needOrderBody"></tbody>
@@ -261,7 +273,6 @@
                   <th>Current Qty</th>
                   <th>Baseline</th>
                   <th>% Left</th>
-                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="criticalBody"></tbody>
@@ -286,6 +297,17 @@
                 />
               </div>
             </div>
+
+            <!-- Column Headers for Logs -->
+            <!-- Column Headers for Logs -->
+            <div class="logs-column-headers">
+              <div class="log-header-date">Date & Time</div>
+              <div class="log-header-part">Part</div>
+              <div class="log-header-qty">Quantity</div>
+              <div class="log-header-stock">Stock Change</div>
+              <div class="log-header-note">Note</div>
+            </div>
+
             <div id="logsListContainer"></div>
           </div>
         </div>
@@ -699,6 +721,32 @@
               Cancel
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log Details Modal -->
+    <div id="logDetailsModal" class="modal">
+      <div class="modal-card details-modal">
+        <span class="close-modal" data-modal="logDetailsModal">&times;</span>
+        <h3><i class="fas fa-clipboard-list"></i> Usage Log Details</h3>
+        <div id="logDetailsContent" class="details-grid"></div>
+        <div class="details-actions">
+          <button
+            id="logDetailsEditBtn"
+            class="btn btn-secondary"
+            style="display: none"
+          >
+            <i class="fas fa-edit"></i> Edit Log
+          </button>
+          <button
+            id="logDetailsDeleteBtn"
+            class="btn btn-danger"
+            style="display: none"
+          >
+            <i class="fas fa-trash"></i> Delete Log
+          </button>
+          <button id="logDetailsCloseBtn" class="btn btn-primary">Close</button>
         </div>
       </div>
     </div>
