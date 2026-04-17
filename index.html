@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover"
     />
-    <title>Inventory Manager Pro v13.0 | Cloud Sync</title>
+    <title>Inventory Manager Pro v14.0 | Admin Panel</title>
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
@@ -96,7 +96,7 @@
         <div class="header">
           <h1>
             <i class="fas fa-cubes"></i> Inventory Manager Pro
-            <span class="version-badge">v13.0</span>
+            <span class="version-badge">v14.0</span>
           </h1>
           <div class="stats-bar">
             <div class="stat-card">
@@ -106,6 +106,13 @@
               <i class="fas fa-exclamation-triangle"></i>
               <span id="lowStockStat">0</span>
             </div>
+            <button
+              id="adminPanelBtn"
+              class="btn btn-secondary"
+              style="display: none; background: #7c3aed; color: white"
+            >
+              <i class="fas fa-users-cog"></i> Admin
+            </button>
             <button
               id="logoutBtn"
               class="btn btn-secondary"
@@ -196,6 +203,7 @@
                   <th>Current Qty</th>
                   <th>Baseline</th>
                   <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="allPartsBody"></tbody>
@@ -224,6 +232,7 @@
                   <th>Current Qty</th>
                   <th>Baseline</th>
                   <th>Shortage</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="needOrderBody"></tbody>
@@ -252,6 +261,7 @@
                   <th>Current Qty</th>
                   <th>Baseline</th>
                   <th>% Left</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="criticalBody"></tbody>
@@ -538,6 +548,157 @@
         <div class="modal-actions">
           <button class="btn btn-secondary" id="cancelAddBtn">Cancel</button>
           <button class="btn btn-primary" id="saveAddBtn">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Admin Panel Modal -->
+    <div id="adminPanelModal" class="modal">
+      <div class="modal-card" style="max-width: 700px">
+        <span class="close-modal" data-modal="adminPanelModal">&times;</span>
+        <h3><i class="fas fa-users-cog"></i> Admin Panel - User Management</h3>
+
+        <div class="admin-stats">
+          <div class="admin-stat-card">
+            <i class="fas fa-users"></i>
+            <div>
+              <div class="stat-label">Total Users</div>
+              <div class="stat-value" id="totalUsersCount">0</div>
+            </div>
+          </div>
+          <div class="admin-stat-card">
+            <i class="fas fa-user-shield"></i>
+            <div>
+              <div class="stat-label">Admins</div>
+              <div class="stat-value" id="adminCount">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-search">
+          <i class="fas fa-search"></i>
+          <input
+            type="text"
+            id="adminUserSearch"
+            placeholder="Search users by email..."
+          />
+        </div>
+
+        <div class="admin-user-list" id="adminUserList">
+          <div style="text-align: center; padding: 20px">
+            <i class="fas fa-spinner fa-pulse"></i> Loading users...
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="closeAdminPanelBtn" class="btn btn-secondary">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Permissions Modal -->
+    <div id="userPermissionsModal" class="modal">
+      <div class="modal-card" style="max-width: 500px">
+        <span class="close-modal" data-modal="userPermissionsModal"
+          >&times;</span
+        >
+        <h3><i class="fas fa-user-cog"></i> User Permissions</h3>
+
+        <div id="userPermissionsContent">
+          <div class="user-permissions-header" id="userPermissionsHeader"></div>
+
+          <div class="permissions-section">
+            <h4><i class="fas fa-cubes"></i> Parts Permissions</h4>
+            <div class="permission-item">
+              <div class="permission-info">
+                <strong>Add Parts</strong>
+                <small>Can create new parts</small>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="permAddParts" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="permission-item">
+              <div class="permission-info">
+                <strong>Edit Parts</strong>
+                <small>Can modify existing parts (including quantity)</small>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="permEditParts" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="permission-item">
+              <div class="permission-info">
+                <strong>Delete Parts</strong>
+                <small>Can remove parts from inventory</small>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="permDeleteParts" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="permissions-section">
+            <h4><i class="fas fa-history"></i> Logs Permissions</h4>
+            <div class="permission-item">
+              <div class="permission-info">
+                <strong>Log Usage</strong>
+                <small>Can record part usage (decreases quantity)</small>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="permLogUsage" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="permission-item">
+              <div class="permission-info">
+                <strong>Edit Logs</strong>
+                <small>Can modify log entries</small>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="permEditLogs" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="permission-item">
+              <div class="permission-info">
+                <strong>Delete Logs</strong>
+                <small>Can remove log entries</small>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="permDeleteLogs" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="permissions-section">
+            <h4><i class="fas fa-tools"></i> Admin Rights</h4>
+            <div class="permission-item">
+              <div class="permission-info">
+                <strong>Admin Access</strong>
+                <small>Full system access including user management</small>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="permIsAdmin" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="user-permissions-actions">
+            <button id="savePermissionsBtn" class="btn btn-primary">
+              Save Changes
+            </button>
+            <button id="cancelPermissionsBtn" class="btn btn-secondary">
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </div>
