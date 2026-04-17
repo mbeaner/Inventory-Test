@@ -17,8 +17,44 @@ body {
   margin: 0 auto;
 }
 
-/* ========== AUTH STYLES ========== */
+/* ========== LOADING SCREEN ========== */
+.loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #e8eef4 0%, #dce3ec 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
 
+.loading-spinner-large {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #e2e8f0;
+  border-top-color: #2d6a4f;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+.loading-screen p {
+  color: #1e466e;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ========== AUTH STYLES ========== */
 .auth-container {
   min-height: 100vh;
   display: flex;
@@ -130,7 +166,6 @@ body {
   color: #2d6a4f;
 }
 
-/* Loading state for buttons */
 .btn-loading {
   opacity: 0.7;
   cursor: not-allowed;
@@ -150,12 +185,6 @@ body {
   border-top-color: transparent;
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* Sync indicator */
@@ -179,8 +208,18 @@ body {
   font-size: 0.8rem;
 }
 
-/* ========== MAIN APP STYLES ========== */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
 
+/* ========== MAIN APP STYLES ========== */
 .version-badge {
   background: #7c3aed15;
   color: #7c3aed;
@@ -665,6 +704,33 @@ td {
   color: #2d6a4f;
 }
 
+/* Sortable column headers */
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.sortable:hover {
+  background: #eef2ff;
+}
+
+.sortable i {
+  margin-left: 6px;
+  font-size: 0.7rem;
+  opacity: 0.5;
+}
+
+.sortable.asc i {
+  opacity: 1;
+  transform: rotate(0deg);
+}
+
+.sortable.desc i {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+
 .pagination {
   display: flex;
   justify-content: center;
@@ -700,6 +766,44 @@ td {
   border-radius: 40px;
 }
 
+/* ========== USAGE LOGS COLUMN HEADERS ========== */
+.logs-column-headers {
+  display: grid;
+  grid-template-columns: 180px 1.2fr 100px 130px 1.8fr;
+  background: #f1f5f9;
+  padding: 12px 16px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #1e466e;
+  border-bottom: 2px solid #e2e8f0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.log-header-date,
+.log-header-part,
+.log-header-qty,
+.log-header-note,
+.log-header-stock,
+.log-header-actions {
+  padding: 0 8px;
+}
+
+.log-entry {
+  display: grid;
+  grid-template-columns: 180px 1.2fr 100px 130px 1.8fr;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  gap: 0;
+  font-size: 0.75rem;
+}
+
+.log-entry > div {
+  padding: 0 8px;
+  word-break: break-word;
+}
+
 .logs-container {
   background: white;
   border-radius: 20px;
@@ -717,19 +821,27 @@ td {
   font-size: 0.8rem;
 }
 
-.log-entry {
-  padding: 12px 16px;
-  border-bottom: 1px solid #f1f5f9;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.75rem;
+/* Clickable log entries */
+.clickable-log {
+  cursor: pointer;
+  transition: background 0.2s;
 }
 
-/* ========== MOBILE-OPTIMIZED MODAL STYLES ========== */
+.clickable-log:hover {
+  background: #f8fafc;
+}
 
+/* Keep action buttons from triggering the click on the row */
+.log-entry .icon-btn {
+  position: relative;
+  z-index: 2;
+}
+
+.log-entry .icon-btn:hover {
+  background: #eef2ff;
+}
+
+/* ========== MODAL STYLES ========== */
 .modal {
   display: none;
   position: fixed;
@@ -1658,17 +1770,6 @@ input:checked + .toggle-slider:before {
   text-align: center;
 }
 
-@keyframes slideUp {
-  from {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
 .hidden-copy-area {
   position: fixed;
   left: -9999px;
@@ -1677,7 +1778,7 @@ input:checked + .toggle-slider:before {
   pointer-events: none;
 }
 
-/* Touch feedback for buttons */
+/* Touch feedback */
 .btn:active,
 .icon-btn:active,
 .tab-btn:active,
@@ -1704,9 +1805,37 @@ input:checked + .toggle-slider:before {
   }
 }
 
-/* Scroll padding for better visibility */
+/* Scroll padding */
 .modal-card {
   scroll-padding-bottom: 80px;
+}
+
+/* Responsive for Usage Logs on mobile */
+@media (max-width: 768px) {
+  .logs-column-headers {
+    display: none;
+  }
+
+  .log-entry {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .log-entry > div {
+    padding: 4px 0;
+    width: 100%;
+  }
+
+  .log-entry > div:first-child {
+    font-weight: 600;
+    color: #1e466e;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
 }
 
 /* Mobile specific adjustments */
