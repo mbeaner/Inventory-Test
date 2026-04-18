@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover"
     />
-    <title>Inventory Manager Pro v16.1.4 | Clickable Logs</title>
+    <title>Inventory Manager Pro v17.1.0 | Dashboard</title>
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
@@ -15,6 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -102,7 +103,7 @@
         <div class="header">
           <h1>
             <i class="fas fa-cubes"></i> Inventory Manager Pro
-            <span class="version-badge">v16.1.4</span>
+            <span class="version-badge">v17.1.0</span>
           </h1>
           <div class="stats-bar">
             <div class="stat-card">
@@ -155,7 +156,8 @@
 
         <!-- Desktop Tab Navigation -->
         <div class="tab-nav desktop-nav">
-          <button class="tab-btn active" data-tab="all">All Parts</button>
+          <button class="tab-btn" data-tab="dashboard">Dashboard</button>
+          <button class="tab-btn" data-tab="all">All Parts</button>
           <button class="tab-btn" data-tab="needorder">Need Order</button>
           <button class="tab-btn" data-tab="critical">Critical</button>
           <button class="tab-btn" data-tab="logs">Usage Logs</button>
@@ -168,9 +170,10 @@
             <span>Menu</span>
           </div>
           <div class="mobile-dropdown" id="mobileDropdown">
-            <button class="mobile-tab-btn active" data-tab="all">
-              All Parts
+            <button class="mobile-tab-btn" data-tab="dashboard">
+              Dashboard
             </button>
+            <button class="mobile-tab-btn" data-tab="all">All Parts</button>
             <button class="mobile-tab-btn" data-tab="needorder">
               Need Order
             </button>
@@ -179,7 +182,105 @@
           </div>
         </div>
 
-        <div id="tab-all" class="tab-content active">
+        <!-- DASHBOARD TAB -->
+        <div id="tab-dashboard" class="tab-content">
+          <div class="dashboard-header">
+            <h2><i class="fas fa-chart-line"></i> Inventory Dashboard</h2>
+            <button id="refreshDashboardBtn" class="btn btn-secondary">
+              <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+          </div>
+
+          <!-- KPI Cards -->
+          <div class="dashboard-kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-icon"><i class="fas fa-cubes"></i></div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpiTotalParts">0</div>
+                <div class="kpi-label">Total Parts</div>
+                <div class="kpi-trend" id="kpiPartsTrend">Loading...</div>
+              </div>
+            </div>
+            <div class="kpi-card warning">
+              <div class="kpi-icon">
+                <i class="fas fa-exclamation-triangle"></i>
+              </div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpiLowStock">0</div>
+                <div class="kpi-label">Low Stock</div>
+                <div class="kpi-trend" id="kpiLowStockTrend">
+                  Below baseline
+                </div>
+              </div>
+            </div>
+            <div class="kpi-card critical">
+              <div class="kpi-icon"><i class="fas fa-bell"></i></div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpiCritical">0</div>
+                <div class="kpi-label">Critical Stock</div>
+                <div class="kpi-trend" id="kpiCriticalTrend">
+                  Below 50% of baseline
+                </div>
+              </div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-icon"><i class="fas fa-history"></i></div>
+              <div class="kpi-info">
+                <div class="kpi-value" id="kpiLogsCount">0</div>
+                <div class="kpi-label">Logs (30 days)</div>
+                <div class="kpi-trend" id="kpiLogsTrend">Last 30 days</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Usage Trends Chart -->
+          <div class="dashboard-section">
+            <h3>
+              <i class="fas fa-chart-line"></i> Usage Trends (Last 30 Days)
+            </h3>
+            <div class="chart-container">
+              <canvas id="usageTrendsChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Top Used Parts -->
+          <div class="dashboard-section">
+            <h3>
+              <i class="fas fa-fire"></i> Top 5 Most Used Parts (Last 30 Days)
+            </h3>
+            <div class="top-parts-list" id="topPartsList">
+              <div class="loading-placeholder">Loading...</div>
+            </div>
+          </div>
+
+          <!-- Low Stock Alerts -->
+          <div class="dashboard-section">
+            <h3><i class="fas fa-bell"></i> Low Stock Alerts</h3>
+            <div class="low-stock-list" id="lowStockList">
+              <div class="loading-placeholder">Loading...</div>
+            </div>
+            <div class="view-all-link">
+              <a
+                href="#"
+                onclick="
+                  switchToTab('needorder');
+                  return false;
+                "
+                >View all low stock items →</a
+              >
+            </div>
+          </div>
+
+          <!-- Recent Activity -->
+          <div class="dashboard-section">
+            <h3><i class="fas fa-clock"></i> Recent Activity</h3>
+            <div class="recent-activity-list" id="recentActivityList">
+              <div class="loading-placeholder">Loading...</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-all" class="tab-content">
           <div class="search-section">
             <div class="search-box">
               <i class="fas fa-search"></i
@@ -298,7 +399,6 @@
               </div>
             </div>
 
-            <!-- Column Headers for Logs -->
             <!-- Column Headers for Logs -->
             <div class="logs-column-headers">
               <div class="log-header-date">Date & Time</div>
