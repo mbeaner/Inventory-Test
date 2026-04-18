@@ -1,4 +1,4 @@
-// app.js - Inventory Manager Pro v16.1.7 with Tab Persistence
+// app.js - Inventory Manager Pro v17.1.0 with Dashboard
 
 // Get Supabase client from window
 const supabaseClient = window.supabaseClient;
@@ -39,6 +39,9 @@ let allSortDirection = 'asc';
 
 // Tab persistence
 const STORAGE_KEY = 'inventoryManager_activeTab';
+
+// Chart variable
+let usageChart = null;
 
 // Camera variables
 let cameraStream = null;
@@ -252,14 +255,348 @@ function activateTab(tabId) {
     tc.classList.remove('active');
   });
   document.getElementById('tab-' + tabId).classList.add('active');
+
+  // If dashboard is activated, load dashboard data
+  if (tabId === 'dashboard') {
+    loadDashboardData();
+  }
 }
 
 function restoreActiveTab() {
   const savedTab = loadActiveTab();
-  if (savedTab && ['all', 'needorder', 'critical', 'logs'].includes(savedTab)) {
+  if (
+    savedTab &&
+    ['dashboard', 'all', 'needorder', 'critical', 'logs'].includes(savedTab)
+  ) {
     activateTab(savedTab);
   } else {
-    activateTab('all');
+    activateTab('dashboard');
+  }
+}
+
+// ========== DASHBOARD FUNCTIONS ==========
+
+async function loadDashboardData() {
+  await Promise.all([
+    updateKPICards(),
+    updateUsageTrendsChart(),
+    updateTopUsedParts(),
+    updateLowStockAlerts(),
+    updateRecentActivity(),
+  ]);
+}
+
+async function updateKPICards() {
+  const totalParts = parts.length;
+  const lowStockCount = parts.filter(
+    (p) => p.current_qty < p.baseline_qty,
+  ).length;
+  const criticalCount = parts.filter(
+    (p) => p.current_qty < p.baseline_qty * 0.5,
+  ).length;
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const recentLogs = usageLogs.filter(
+    (l) => new Date(l.created_at) >= thirtyDaysAgo,
+  );
+  const logsCount = recentLogs.length;
+
+  const oneMonthAgo = new Date();
+  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  const partsAddedThisMonth = parts.filter(
+    (p) => new Date(p.created_at) >= oneMonthAgo,
+  ).length;
+
+  document.getElementById('kpiTotalParts').innerText = totalParts;
+  document.getElementById('kpiLowStock').innerText = lowStockCount;
+  document.getElementById('kpiCritical').innerText = criticalCount;
+  document.getElementById('kpiLogsCount').innerText = logsCount;
+
+  document.getElementById('kpiPartsTrend').innerHTML =
+    partsAddedThisMonth > 0
+      ? `▲ +${partsAddedThisMonth} this month`
+      : 'No new parts';
+}
+
+async function updateUsageTrendsChart() {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const last30Days = [];
+  for (let i = 29; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+    last30Days.push({ date: dateStr, count: 0 });
+  }
+
+  usageLogs.forEach((log) => {
+    const logDate = new Date(log.created_at);
+    if (logDate >= thirtyDaysAgo) {
+      const dateStr = logDate.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      });
+      const dayData = last30Days.find((d) => d.date === dateStr);
+      if (dayData) {
+        dayData.count += log.qty_used;
+      }
+    }
+  });
+
+  const chartLabels = last30Days.map((d) => d.date);
+  const chartData = last30Days.map((d) => d.count);
+
+  const ctx = document.getElementById('usageTrendsChart').getContext('2d');
+
+  if (usageChart) {
+    usageChart.destroy();
+  }
+
+  usageChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: chartLabels,
+      datasets: [
+        {
+          label: 'Parts Used',
+          data: chartData,
+          borderColor: '#2d6a4f',
+          backgroundColor: 'rgba(45, 106, 79, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 2,
+          pointBackgroundColor: '#2d6a4f',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 1,
+          pointHoverRadius: 5,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false,
+        },
+        tooltip: {
+          callbacks: {
+            label: function (context) {
+              return `${context.raw} units used`;
+            },
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Units Used',
+            font: { size: 11 },
+          },
+          ticks: {
+            stepSize: 1,
+          },
+        },
+        x: {
+          ticks: {
+            maxRotation: 45,
+            minRotation: 45,
+            autoSkip: true,
+            maxTicksLimit: 10,
+          },
+        },
+      },
+    },
+  });
+}
+
+async function updateTopUsedParts() {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const usageCount = {};
+  usageLogs.forEach((log) => {
+    const logDate = new Date(log.created_at);
+    if (logDate >= thirtyDaysAgo) {
+      if (!usageCount[log.part_number]) {
+        usageCount[log.part_number] = {
+          count: 0,
+          description: log.part_number,
+        };
+      }
+      usageCount[log.part_number].count += log.qty_used;
+      const part = parts.find((p) => p.part_number === log.part_number);
+      if (part) {
+        usageCount[log.part_number].description =
+          part.description || log.part_number;
+      }
+    }
+  });
+
+  const sortedParts = Object.entries(usageCount)
+    .map(([part_number, data]) => ({ part_number, ...data }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  const container = document.getElementById('topPartsList');
+  if (sortedParts.length === 0) {
+    container.innerHTML =
+      '<div class="loading-placeholder">No usage data in the last 30 days</div>';
+    return;
+  }
+
+  const maxCount = sortedParts[0]?.count || 1;
+
+  let html = '';
+  sortedParts.forEach((part, index) => {
+    const percentage = (part.count / maxCount) * 100;
+    html += `
+            <div class="top-part-item">
+                <div class="top-part-rank">${index + 1}</div>
+                <div class="top-part-info">
+                    <div class="top-part-name">${escapeHtml(part.part_number)}</div>
+                    <div class="top-part-desc">${escapeHtml(part.description.substring(0, 40))}</div>
+                </div>
+                <div class="top-part-bar-container">
+                    <div class="top-part-bar">
+                        <div class="top-part-bar-fill" style="width: ${percentage}%"></div>
+                    </div>
+                    <div class="top-part-qty">${part.count} used</div>
+                </div>
+            </div>
+        `;
+  });
+  container.innerHTML = html;
+}
+
+async function updateLowStockAlerts() {
+  const lowStockParts = parts
+    .filter((p) => p.current_qty < p.baseline_qty)
+    .sort((a, b) => {
+      const aPercent = a.current_qty / a.baseline_qty;
+      const bPercent = b.current_qty / b.baseline_qty;
+      return aPercent - bPercent;
+    })
+    .slice(0, 5);
+
+  const container = document.getElementById('lowStockList');
+  if (lowStockParts.length === 0) {
+    container.innerHTML =
+      '<div class="loading-placeholder">No low stock items! 🎉</div>';
+    return;
+  }
+
+  let html = '';
+  lowStockParts.forEach((part) => {
+    const isCritical = part.current_qty < part.baseline_qty * 0.5;
+    const shortage = part.baseline_qty - part.current_qty;
+
+    html += `
+            <div class="low-stock-item ${isCritical ? 'critical' : 'warning'}" onclick="showPartDetails(${part.id})">
+                <div class="low-stock-info">
+                    <div class="low-stock-number"><strong>${escapeHtml(part.part_number)}</strong></div>
+                    <div class="low-stock-desc">${escapeHtml(part.description || '')}</div>
+                </div>
+                <div class="low-stock-stats">
+                    <div class="low-stock-current">
+                        <div class="label">Current</div>
+                        <div class="value">${part.current_qty}</div>
+                    </div>
+                    <div class="low-stock-baseline">
+                        <div class="label">Baseline</div>
+                        <div class="value">${part.baseline_qty}</div>
+                    </div>
+                    <div class="low-stock-shortage ${isCritical ? 'critical' : 'warning'}">
+                        Need ${shortage} more
+                    </div>
+                </div>
+            </div>
+        `;
+  });
+  container.innerHTML = html;
+}
+
+async function updateRecentActivity() {
+  const recentLogs = usageLogs.slice(0, 10);
+  const container = document.getElementById('recentActivityList');
+
+  if (recentLogs.length === 0) {
+    container.innerHTML =
+      '<div class="loading-placeholder">No recent activity</div>';
+    return;
+  }
+
+  let html = '';
+  recentLogs.forEach((log) => {
+    const date = new Date(log.created_at);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    let timeAgo;
+    if (diffMins < 1) timeAgo = 'Just now';
+    else if (diffMins < 60) timeAgo = `${diffMins} min ago`;
+    else if (diffHours < 24)
+      timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    else timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+
+    html += `
+            <div class="activity-item" onclick="showLogDetails(${log.id})">
+                <div class="activity-icon usage">
+                    <i class="fas fa-minus"></i>
+                </div>
+                <div class="activity-content">
+                    <div class="activity-text">
+                        <strong>${escapeHtml(log.qty_used)} x ${escapeHtml(log.part_number)}</strong> used
+                        ${log.note ? `<span class="activity-note"> - ${escapeHtml(log.note)}</span>` : ''}
+                    </div>
+                    <div class="activity-time">${timeAgo} by ${escapeHtml(log.created_by_email || 'Unknown')}</div>
+                </div>
+            </div>
+        `;
+  });
+  container.innerHTML = html;
+}
+
+function switchToTab(tabId) {
+  const mobileTabBtns = document.querySelectorAll('.mobile-tab-btn');
+  const desktopTabBtns = document.querySelectorAll('.tab-btn');
+
+  desktopTabBtns.forEach((btn) => {
+    if (btn.getAttribute('data-tab') === tabId) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  mobileTabBtns.forEach((btn) => {
+    if (btn.getAttribute('data-tab') === tabId) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  document.querySelectorAll('.tab-content').forEach((tc) => {
+    tc.classList.remove('active');
+  });
+  document.getElementById('tab-' + tabId).classList.add('active');
+
+  saveActiveTab(tabId);
+
+  if (tabId === 'dashboard') {
+    loadDashboardData();
   }
 }
 
@@ -550,6 +887,9 @@ async function loadAllData() {
   await loadParts();
   await loadUsageLogs();
   refreshAll();
+  if (document.getElementById('tab-dashboard').classList.contains('active')) {
+    loadDashboardData();
+  }
 }
 
 async function loadParts() {
@@ -1382,7 +1722,7 @@ function renderNeedOrder() {
         let p = needParts[i];
         let shortage = p.baseline_qty - p.current_qty;
         html +=
-          '<td>' +
+          '<tr>' +
           '<td><span class="clickable-part" onclick="showPartDetails(' +
           p.id +
           ')"><strong>' +
@@ -2068,10 +2408,12 @@ function initMobileMenu() {
       });
       document.getElementById('tab-' + tabId).classList.add('active');
 
-      // Save active tab to localStorage
       saveActiveTab(tabId);
 
-      // Close dropdown on mobile after selection
+      if (tabId === 'dashboard') {
+        loadDashboardData();
+      }
+
       dropdown.classList.remove('show');
     });
   });
@@ -2096,8 +2438,11 @@ function initMobileMenu() {
       });
       document.getElementById('tab-' + tabId).classList.add('active');
 
-      // Save active tab to localStorage
       saveActiveTab(tabId);
+
+      if (tabId === 'dashboard') {
+        loadDashboardData();
+      }
     });
   });
 }
@@ -2326,6 +2671,14 @@ document
     hideModal('logDetailsModal');
   });
 
+// Dashboard refresh button
+document
+  .getElementById('refreshDashboardBtn')
+  ?.addEventListener('click', function () {
+    loadDashboardData();
+    showToast('Dashboard refreshed', false);
+  });
+
 // Sorting event listeners
 document.querySelectorAll('#tab-all .sortable').forEach((header) => {
   header.addEventListener('click', function () {
@@ -2382,6 +2735,7 @@ initUsageQuantityControls();
 window.changeAllPage = changeAllPage;
 window.showPartDetails = showPartDetails;
 window.showLogDetails = showLogDetails;
+window.switchToTab = switchToTab;
 window.openUserPermissions = window.openUserPermissions;
 checkSession();
 
